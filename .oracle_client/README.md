@@ -12,3 +12,4 @@ Expand-Archive -Path $zip -DestinationPath . -Force
 Remove-Item $zip
 
 解压后此目录下应存在 instantclient_21_22 子目录。
+![img.png](img.png)
