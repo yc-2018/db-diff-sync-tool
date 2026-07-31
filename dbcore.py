@@ -660,8 +660,15 @@ def diff_structure(src: TableMeta | None, dst: TableMeta | None, dialect: str):
             stmts.append("COMMENT ON TABLE %s IS '%s';" % (t, (src.table_comment or "").replace("'", "''")))
         for c in src.cols:
             d = dst_cols.get(c.name)
-            if d and (c.comment or "") != (d.comment or ""):
-                stmts.append("COMMENT ON COLUMN %s.%s IS '%s';" % (t, c.name, (c.comment or "").replace("'", "''")))
+            src_cmt = (c.comment or "").strip()
+            if d is None:
+                # 新增列: 直接用 src 的 comment
+                if src_cmt:
+                    stmts.append("COMMENT ON COLUMN %s.%s IS '%s';" % (t, c.name, src_cmt.replace("'", "''")))
+            else:
+                dst_cmt = (d.comment or "").strip()
+                if src_cmt != dst_cmt:
+                    stmts.append("COMMENT ON COLUMN %s.%s IS '%s';" % (t, c.name, src_cmt.replace("'", "''")))
     elif dialect == "mysql":
         if (src.table_comment or "") != (dst.table_comment or ""):
             stmts.append("ALTER TABLE `%s` COMMENT = '%s';" % (t, (src.table_comment or "").replace("'", "''")))

@@ -66,6 +66,12 @@
    - 中部显示差异明细（仅左侧/仅右侧/内容不同，变更列高亮）；
    - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制。
 
+
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/493921/26/3209/293328/6a6c0f7cF02f63923/06d765e52da39b25.webp)
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/497116/7/729/167664/6a6c0fe0Ff60a1d75/06d77a6434731e54.webp)
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/497479/7/344/186230/6a6c1032F9fa23106/06d77a642b5d4d0b.webp)
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/483155/19/11296/140596/6a6c1074F9d64af8e/06d77a642bb2b10d.webp)
+
 ## 目录结构
 
 ```
