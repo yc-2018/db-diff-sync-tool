@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>数据库同步比对工具</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">⇄</span> 数据库同步比对工具
+  </div>
+  <div class="modes">
+    <button id="btnModeStruct" class="mode-btn" disabled title="两侧都连接后可用">同步数据表</button>
+    <button id="btnModeData" class="mode-btn" disabled title="两侧都连接后可用">同步数据</button>
+  </div>
+  <div class="top-right" id="topHint">请先连接两侧数据库</div>
+</header>
+
+<main class="main">
+  <!-- 左侧面板 -->
+  <section class="pane" id="pane-left" data-side="left">
+    <div class="pane-head">
+      <span class="side-tag side-left">左侧库</span>
+      <select class="db-select" id="sel-left"></select>
+      <span class="dot" id="dot-left"></span>
+      <button class="btn-mini btn-disc" id="disc-left" title="断开当前连接" style="display:none">断开</button>
+    </div>
+
+    <!-- 连接表单 -->
+    <div class="conn-form" id="form-left">
+      <div class="form-title">连接数据库</div>
+      <div class="frow f-url-row"><label>粘贴URL</label>
+        <input class="f-url" placeholder="jdbc:oracle:thin:@//host:port/service  或  host:port/service" autocomplete="off">
+        <button class="btn-mini btn-parse-url" title="解析并填充各字段">解析</button>
+      </div>
+      <div class="frow"><label>类型</label>
+        <select class="f-type">
+          <option value="oracle" selected>Oracle</option>
+          <option value="mysql">MySQL</option>
+          <option value="sqlite">SQLite</option>
+        </select>
+      </div>
+      <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
+      <div class="f-host-row">
+        <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
+        <div class="frow f-port"><label>端口</label><input class="f-portnum" value="1521"></div>
+      </div>
+      <div class="frow f-ora">
+        <label>方式</label>
+        <select class="f-ora-mode">
+          <option value="service" selected>服务名</option>
+          <option value="sid">SID</option>
+        </select>
+        <input class="f-ora-value" placeholder="ORCL / XEPDB1">
+      </div>
+      <div class="frow f-mysql" style="display:none"><label>数据库</label><input class="f-database" placeholder="数据库名"></div>
+      <div class="frow f-sqlite" style="display:none"><label>文件</label><input class="f-path" placeholder="D:\data\xxx.db"></div>
+      <div class="frow f-userrow"><label>用户名</label><input class="f-user" placeholder="scott"></div>
+      <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
+      <div class="frow f-remember">
+        <label></label>
+        <label class="chk"><input type="checkbox" class="f-save" checked> 记住此连接(保存在本机)</label>
+      </div>
+      <div class="fbtns">
+        <button class="btn btn-test">测试连接</button>
+        <button class="btn btn-primary btn-connect">连 接</button>
+      </div>
+      <div class="form-msg"></div>
+    </div>
+
+    <!-- 已连接工作区 -->
+    <div class="workspace" id="ws-left" style="display:none">
+      <div class="tool-struct tool-block">
+        <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+        <button class="btn btn-primary btn-compare-struct">确定</button>
+      </div>
+      <div class="tool-data tool-block" style="display:none">
+        <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+        <button class="btn btn-primary btn-compare-data">确定</button>
+      </div>
+      <div class="result-area"></div>
+      <div class="sql-area">
+        <div class="sql-head">
+          <span class="sql-title">修复SQL</span>
+          <span class="sql-sub">仅复制, 应用不执行</span>
+          <button class="btn-mini btn-copy">复制SQL</button>
+        </div>
+        <textarea class="sql-output" readonly placeholder="比对完成后, 这里显示让本侧变成对方的 SQL"></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- 右侧面板 -->
+  <section class="pane" id="pane-right" data-side="right">
+    <div class="pane-head">
+      <span class="side-tag side-right">右侧库</span>
+      <select class="db-select" id="sel-right"></select>
+      <span class="dot" id="dot-right"></span>
+      <button class="btn-mini btn-disc" id="disc-right" title="断开当前连接" style="display:none">断开</button>
+    </div>
+
+    <div class="conn-form" id="form-right">
+      <div class="form-title">连接数据库</div>
+      <div class="frow f-url-row"><label>粘贴URL</label>
+        <input class="f-url" placeholder="jdbc:oracle:thin:@//host:port/service  或  host:port/service" autocomplete="off">
+        <button class="btn-mini btn-parse-url" title="解析并填充各字段">解析</button>
+      </div>
+      <div class="frow"><label>类型</label>
+        <select class="f-type">
+          <option value="oracle" selected>Oracle</option>
+          <option value="mysql">MySQL</option>
+          <option value="sqlite">SQLite</option>
+        </select>
+      </div>
+      <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
+      <div class="f-host-row">
+        <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
+        <div class="frow f-port"><label>端口</label><input class="f-portnum" value="1521"></div>
+      </div>
+      <div class="frow f-ora">
+        <label>方式</label>
+        <select class="f-ora-mode">
+          <option value="service" selected>服务名</option>
+          <option value="sid">SID</option>
+        </select>
+        <input class="f-ora-value" placeholder="ORCL / XEPDB1">
+      </div>
+      <div class="frow f-mysql" style="display:none"><label>数据库</label><input class="f-database" placeholder="数据库名"></div>
+      <div class="frow f-sqlite" style="display:none"><label>文件</label><input class="f-path" placeholder="D:\data\xxx.db"></div>
+      <div class="frow f-userrow"><label>用户名</label><input class="f-user" placeholder="scott"></div>
+      <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
+      <div class="frow f-remember">
+        <label></label>
+        <label class="chk"><input type="checkbox" class="f-save" checked> 记住此连接(保存在本机)</label>
+      </div>
+      <div class="fbtns">
+        <button class="btn btn-test">测试连接</button>
+        <button class="btn btn-primary btn-connect">连 接</button>
+      </div>
+      <div class="form-msg"></div>
+    </div>
+
+    <div class="workspace" id="ws-right" style="display:none">
+      <div class="tool-struct tool-block">
+        <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+        <button class="btn btn-primary btn-compare-struct">确定</button>
+      </div>
+      <div class="tool-data tool-block" style="display:none">
+        <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+        <button class="btn btn-primary btn-compare-data">确定</button>
+      </div>
+      <div class="result-area"></div>
+      <div class="sql-area">
+        <div class="sql-head">
+          <span class="sql-title">输出修复SQL</span>
+          <span class="sql-sub">仅复制, 应用不执行</span>
+          <button class="btn-mini btn-copy">复制SQL</button>
+        </div>
+        <textarea class="sql-output" readonly placeholder="比对完成后, 这里显示让本侧变成对方的 SQL"></textarea>
+      </div>
+    </div>
+  </section>
+</main>
+
+<datalist id="tables-datalist"></datalist>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

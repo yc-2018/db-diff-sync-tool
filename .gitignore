@@ -1,0 +1,5 @@
+﻿.venv/
+__pycache__/
+*.pyc
+.oracle_client/
+*.log
