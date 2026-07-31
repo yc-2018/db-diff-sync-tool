@@ -161,6 +161,30 @@ class Api:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
+    def refresh(self, side):
+        """刷新指定侧: 检查连接是否存活, 返回最新状态 (表列表由前端调用 list_tables 独立获取)"""
+        try:
+            s = self._require(side)
+            # Oracle/MySQL: 用 SELECT 1 探活; SQLite: table_names 取一下
+            try:
+                cur = s["db"].conn.cursor()
+                cur.execute("SELECT 1 FROM dual" if s["db"].dialect == "oracle" else "SELECT 1")
+                cur.fetchone()
+                cur.close()
+            except Exception:
+                # 探活失败则断开
+                with self._mu:
+                    old = self._sides[side]
+                    if old:
+                        try: old["db"].close()
+                        except Exception: pass
+                    self._sides[side] = None
+                return self._state()
+            # 清空工作区结果 (前端会被 renderAll 清空)
+            return self._state()
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     # ---- 结构比对 ----
     def compare_structure(self, tables):
         try:
@@ -208,7 +232,7 @@ class Api:
             return {"ok": False, "msg": str(e)}
 
     # ---- 数据比对 ----
-    def compare_data(self, table):
+    def compare_data(self, table, where=""):
         try:
             L = self._require("left")
             R = self._require("right")
@@ -218,6 +242,14 @@ class Api:
                 raise dbcore.DBError("请输入表名")
             if dialect == "oracle":
                 t = t.upper()
+            # 清洗 where: 去除前缀
+            w = (where or "").strip()
+            if w:
+                lw = w.lower()
+                if lw.startswith("where "):
+                    w = w[6:].strip()
+                elif lw.startswith("where"):
+                    w = w[5:].strip()
             lm = L["db"].table_meta(t)
             rm = R["db"].table_meta(t)
             if lm is None and rm is None:
@@ -226,8 +258,8 @@ class Api:
                 raise dbcore.DBError("左侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
             if rm is None:
                 raise dbcore.DBError("右侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
-            lrows = L["db"].fetch_rows(lm)
-            rrows = R["db"].fetch_rows(rm)
+            lrows = L["db"].fetch_rows(lm, where=w)
+            rrows = R["db"].fetch_rows(rm, where=w)
             diff = dbcore.diff_data(lm, lrows, rm, rrows, dialect)
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             l_head = ["-- ========================================================",

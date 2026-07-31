@@ -27,6 +27,7 @@
       <select class="db-select" id="sel-left"></select>
       <span class="dot" id="dot-left"></span>
       <button class="btn-mini btn-disc" id="disc-left" title="断开当前连接" style="display:none">断开</button>
+      <button class="btn-mini btn-refresh" id="refresh-left" title="刷新连接状态和表列表" style="display:none">刷新</button>
     </div>
 
     <!-- 连接表单 -->
@@ -79,6 +80,7 @@
       </div>
       <div class="tool-data tool-block" style="display:none">
         <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+        <input class="data-where-input" placeholder="where 条件 (可选, 如: id > 100 and status = 1)">
         <button class="btn btn-primary btn-compare-data">确定</button>
       </div>
       <div class="result-area"></div>
@@ -88,6 +90,7 @@
           <span class="sql-sub">仅复制, 应用不执行</span>
           <button class="btn-mini btn-copy">复制SQL</button>
         </div>
+        <div class="sql-resizer" title="拖动调整高度"></div>
         <textarea class="sql-output" readonly placeholder="比对完成后, 这里显示让本侧变成对方的 SQL"></textarea>
       </div>
     </div>
@@ -100,6 +103,7 @@
       <select class="db-select" id="sel-right"></select>
       <span class="dot" id="dot-right"></span>
       <button class="btn-mini btn-disc" id="disc-right" title="断开当前连接" style="display:none">断开</button>
+      <button class="btn-mini btn-refresh" id="refresh-right" title="刷新连接状态和表列表" style="display:none">刷新</button>
     </div>
 
     <div class="conn-form" id="form-right">
@@ -150,6 +154,7 @@
       </div>
       <div class="tool-data tool-block" style="display:none">
         <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+        <input class="data-where-input" placeholder="where 条件 (可选, 如: id > 100 and status = 1)">
         <button class="btn btn-primary btn-compare-data">确定</button>
       </div>
       <div class="result-area"></div>
@@ -159,6 +164,7 @@
           <span class="sql-sub">仅复制, 应用不执行</span>
           <button class="btn-mini btn-copy">复制SQL</button>
         </div>
+        <div class="sql-resizer" title="拖动调整高度"></div>
         <textarea class="sql-output" readonly placeholder="比对完成后, 这里显示让本侧变成对方的 SQL"></textarea>
       </div>
     </div>

@@ -138,6 +138,7 @@ function renderPane(side) {
   const ws = $("#ws-" + side);
   $("#dot-" + side).classList.toggle("on", !!info);
   $("#disc-" + side).style.display = info ? "" : "none";
+  $("#refresh-" + side).style.display = info ? "" : "none";
   if (info) {
     form.style.display = "none";
     ws.style.display = "";
@@ -287,9 +288,19 @@ function renderStructResults(r) {
 async function doCompareData() {
   const t = ($(".data-table-input", paneOf("left")).value || $(".data-table-input", paneOf("right")).value).trim();
   if (!t) { toast("请输入表名"); return; }
+  // where 条件 (两侧同步, 取任一侧的值即可)
+  let where = ($(".data-where-input", paneOf("left")).value || $(".data-where-input", paneOf("right")).value || "").trim();
+  if (!where) {
+    where = "";
+  } else {
+    // 兼容用户填了前缀 where 的情况
+    const lw = where.toLowerCase();
+    if (lw.startsWith("where ")) where = where.slice(6).trim();
+    else if (lw.startsWith("where")) where = where.slice(5).trim();
+  }
   setBusy(true);
   try {
-    const r = await api("compare_data", t);
+    const r = await api("compare_data", t, where);
     if (!r.ok) { toast(r.msg || "比对失败", 4000); return; }
     renderDataResults(r);
   } finally {
@@ -377,6 +388,7 @@ function bindPane(side) {
     if (e.target.value) doSwitch(side, e.target.value);
   });
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
+  $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $(".btn-copy", f).addEventListener("click", () => copySQL(side));
   $(".btn-compare-struct", f).addEventListener("click", doCompareStruct);
   $(".btn-compare-data", f).addEventListener("click", doCompareData);
@@ -389,20 +401,57 @@ function bindPane(side) {
     const other = side === "left" ? "right" : "left";
     $(".data-table-input", paneOf(other)).value = e.target.value;
   });
-  // 两侧 SQL 输出框高度同步
-  $(".sql-output", f).addEventListener("mouseup", () => syncSqlHeight(side));
+  // 两侧 where 输入保持同步
+  $(".data-where-input", f).addEventListener("input", e => {
+    const other = side === "left" ? "right" : "left";
+    $(".data-where-input", paneOf(other)).value = e.target.value;
+  });
+  // SQL 输出区拉杆拖拽 (两侧同步高度)
+  bindSqlResizer(side);
   onTypeChange(side);
 }
 
-function syncSqlHeight(side) {
-  const src = $(".sql-output", $("#ws-" + side));
-  if (!src) return;
-  const other = side === "left" ? "right" : "left";
-  const dst = $(".sql-output", $("#ws-" + other));
-  if (!dst) return;
-  // 用 height 同步 (style.height 会覆盖 resize 的结果)
-  const h = src.style.height || src.getBoundingClientRect().height + "px";
-  dst.style.height = h;
+function bindSqlResizer(side) {
+  const resizer = $(".sql-resizer", $("#ws-" + side));
+  if (!resizer) return;
+  resizer.addEventListener("mousedown", e => {
+    e.preventDefault();
+    const area = resizer.parentElement;
+    const startY = e.clientY;
+    const startH = area.getBoundingClientRect().height;
+    document.body.style.cursor = "row-resize";
+    document.body.style.userSelect = "none";
+    function onMove(ev) {
+      const dh = ev.clientY - startY;
+      let h = Math.max(100, Math.min(800, startH + dh));
+      area.style.height = h + "px";
+      // 同步对侧
+      const other = side === "left" ? "right" : "left";
+      const dst = $(".sql-area", $("#ws-" + other));
+      if (dst) dst.style.height = h + "px";
+    }
+    function onUp() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+async function doRefresh(side) {
+  // 重新拉取状态 + 刷新表列表
+  setBusy(true);
+  try {
+    const r = await api("refresh", side);
+    if (!r.ok) { toast(r.msg || "刷新失败"); return; }
+    applyState(r);
+    toast((side === "left" ? "左侧" : "右侧") + "已刷新");
+  } finally {
+    setBusy(false);
+  }
 }
 
 function setMode(m) {

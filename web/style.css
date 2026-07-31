@@ -163,6 +163,7 @@ body {
 }
 .btn-mini:hover { background: #f1f5f9; }
 .btn-disc { color: var(--err); border-color: #fecaca; }
+.btn-refresh { color: #0369a1; border-color: #bae6fd; }
 
 /* ---------- 工作区 ---------- */
 .workspace {
@@ -262,11 +263,33 @@ body {
 }
 .sql-title { font-weight: 700; font-size: 12px; }
 .sql-sub { color: var(--text-dim); font-size: 11px; flex: 1; }
+.sql-resizer {
+  height: 8px;
+  flex-shrink: 0;
+  background: #cbd5e1;
+  cursor: row-resize;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  transition: background 0.15s;
+}
+.sql-resizer::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 2px;
+  background: #64748b;
+  border-radius: 1px;
+}
+.sql-resizer:hover { background: #93c5fd; }
 .sql-output {
   flex: 1;
   border: none;
-  resize: vertical;
-  min-height: 80px;
+  resize: none;
+  min-height: 60px;
   padding: 10px;
   font-family: Consolas, "Courier New", monospace;
   font-size: 12px;

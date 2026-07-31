@@ -195,9 +195,15 @@ class BaseDB:
                 v = None
         return v
 
-    def fetch_rows(self, meta: TableMeta):
+    def fetch_rows(self, meta: TableMeta, where=""):
         cols = [c.name for c in meta.cols]
         sql = "SELECT %s FROM %s" % (", ".join(self.q(c) for c in cols), self.q(meta.name))
+        w = (where or "").strip()
+        if w:
+            # 简单防注入 (用户主动输入, 本工具仅供比对)
+            if ';' in w or '--' in w:
+                raise DBError("where 条件不允许包含分号或注释")
+            sql += " WHERE " + w
         pk = meta.pk_cols
         if pk:
             sql += " ORDER BY " + ", ".join(self.q(c) for c in pk)
