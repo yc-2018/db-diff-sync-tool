@@ -417,9 +417,9 @@ function setMode(m) {
       if (so) so.value = "";
     }
   }
-  S.mode = m;
+  S.mode = S.mode === m ? null : m;
   renderModes();
-  if (m === "data") loadTableList();
+  if (m === "data" && S.mode === "data") loadTableList();
 }
 
 async function init() {
