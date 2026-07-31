@@ -114,12 +114,26 @@ class Col:
     nullable: bool = True
     default: str | None = None
     pk: int = 0          # 在主键中的位置(1..n), 0 表示非主键
+    comment: str = ""   # 列备注 (Oracle/MySQL)
+
+
+@dataclass
+class IndexMeta:
+    """单个索引的元数据"""
+    name: str
+    cols: list          # 索引列名列表
+    unique: bool = False
+    # 原始定义, 用于差异展示
+    def signature(self):
+        return (self.unique, tuple(self.cols))
 
 
 @dataclass
 class TableMeta:
     name: str
     cols: list = field(default_factory=list)   # list[Col]
+    indexes: list = field(default_factory=list)  # list[IndexMeta]
+    table_comment: str = ""   # 表备注
 
     @property
     def pk_cols(self):
@@ -130,6 +144,9 @@ class TableMeta:
             if c.name == name:
                 return c
         return None
+
+    def index_dict(self):
+        return {idx.name: idx for idx in self.indexes}
 
 
 def norm_type(t: str) -> str:
@@ -251,6 +268,12 @@ class OracleDB(BaseDB):
             if not rows:
                 cur.close()
                 return None
+            # 列备注
+            cur.execute(
+                """SELECT column_name, comments
+                     FROM user_col_comments
+                    WHERE table_name = :1""", [t])
+            cmt = {r[0]: (r[1] or "") for r in cur.fetchall()}
             cols = []
             for name, dt, dl, dp, ds, cu, nul, dflt in rows:
                 cols.append(Col(
@@ -258,6 +281,7 @@ class OracleDB(BaseDB):
                     type=_render_oracle_type(dt, dl, dp, ds, cu),
                     nullable=(nul == "Y"),
                     default=norm_default(dflt),
+                    comment=cmt.get(name, ""),
                 ))
             cur.execute(
                 """SELECT cols.column_name, cols.position
@@ -271,8 +295,34 @@ class OracleDB(BaseDB):
                 c = next((x for x in cols if x.name == cn), None)
                 if c:
                     c.pk = i
+            # 普通索引 (排除主键)
+            indexes = []
+            cur.execute(
+                """SELECT idx.index_name, idx.uniqueness,
+                          col.column_name, col.column_position
+                     FROM user_indexes idx
+                     JOIN user_ind_columns col
+                       ON idx.index_name = col.index_name
+                    WHERE idx.table_name = :1
+                      AND idx.index_type NOT LIKE '%FUNCTION%'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM user_constraints c
+                         WHERE c.index_name = idx.index_name
+                           AND c.constraint_type = 'P')
+                    ORDER BY idx.index_name, col.column_position""", [t])
+            cur_idx = {}
+            for idx_name, uniq, col_name, _pos in cur.fetchall():
+                if idx_name not in cur_idx:
+                    cur_idx[idx_name] = [idx_name, [], uniq == 'UNIQUE']
+                cur_idx[idx_name][1].append(col_name)
+            for n, cl, u in cur_idx.values():
+                indexes.append(IndexMeta(name=n, cols=cl, unique=u))
+            # 表备注
+            cur.execute("SELECT comments FROM user_tab_comments WHERE table_name = :1", [t])
+            r = cur.fetchone()
+            tbl_cmt = (r[0] or "") if r else ""
             cur.close()
-        return TableMeta(t, cols)
+        return TableMeta(t, cols, indexes, tbl_cmt)
 
 
 # ---------------------------------------------------------------- MySQL
@@ -303,7 +353,8 @@ class MySQLDB(BaseDB):
         with self.lock:
             cur = self.conn.cursor()
             cur.execute(
-                """SELECT column_name, column_type, is_nullable, column_default, extra
+                """SELECT column_name, column_type, is_nullable, column_default, extra,
+                          column_comment
                      FROM information_schema.columns
                     WHERE table_schema=%s AND table_name=%s
                     ORDER BY ordinal_position""", (self.schema, t))
@@ -312,12 +363,13 @@ class MySQLDB(BaseDB):
                 cur.close()
                 return None
             cols = []
-            for name, ctype, isnull, dflt, extra in rows:
+            for name, ctype, isnull, dflt, extra, comment in rows:
                 cols.append(Col(
                     name=name,
                     type=norm_type(ctype),
                     nullable=(isnull == "YES"),
                     default=_mysql_default(dflt, ctype, extra or ""),
+                    comment=comment or "",
                 ))
             cur.execute(
                 """SELECT column_name FROM information_schema.key_column_usage
@@ -327,8 +379,29 @@ class MySQLDB(BaseDB):
                 c = next((x for x in cols if x.name == cn), None)
                 if c:
                     c.pk = i
+            # 普通索引 (排除主键)
+            indexes = []
+            cur.execute(
+                """SELECT index_name, non_unique, column_name, seq_in_index
+                     FROM information_schema.statistics
+                    WHERE table_schema=%s AND table_name=%s
+                      AND index_name <> 'PRIMARY'
+                    ORDER BY index_name, seq_in_index""", (self.schema, t))
+            cur_idx = {}
+            for idx_name, non_uniq, col_name, _seq in cur.fetchall():
+                if idx_name not in cur_idx:
+                    cur_idx[idx_name] = [idx_name, [], non_uniq == 0]
+                cur_idx[idx_name][1].append(col_name)
+            for n, cl, u in cur_idx.values():
+                indexes.append(IndexMeta(name=n, cols=cl, unique=u))
+            # 表备注
+            cur.execute(
+                "SELECT table_comment FROM information_schema.tables WHERE table_schema=%s AND table_name=%s",
+                (self.schema, t))
+            r = cur.fetchone()
+            tbl_cmt = (r[0] or "") if r else ""
             cur.close()
-        return TableMeta(t, cols)
+        return TableMeta(t, cols, indexes, tbl_cmt)
 
 
 def _mysql_default(dflt, ctype, extra):
@@ -371,19 +444,37 @@ class SQLiteDB(BaseDB):
             cur = self.conn.cursor()
             cur.execute('PRAGMA table_info("%s")' % t)
             rows = cur.fetchall()
+            if not rows:
+                cur.close()
+                return None
+            cols = []
+            for _cid, name, ctype, notnull, dflt, pk in rows:
+                cols.append(Col(
+                    name=name,
+                    type=norm_type(ctype) if ctype else "TEXT",
+                    nullable=(not notnull),
+                    default=norm_default(dflt),
+                    pk=pk or 0,
+                ))
+            # 普通索引 (sqlite_master 里的 index 定义, 排除自动索引)
+            indexes = []
+            cur.execute(
+                "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL ORDER BY name",
+                (t,))
+            for idx_name, idx_sql in cur.fetchall():
+                idx_sql = (idx_sql or "").strip()
+                unique = bool(re.search(r'\bUNIQUE\b', idx_sql, re.IGNORECASE))
+                # 提取列名括号内容
+                m = re.search(r'\(([^\)]+)\)', idx_sql)
+                idx_cols = []
+                if m:
+                    for part in m.group(1).split(','):
+                        part = part.strip().strip('"').strip()
+                        if part:
+                            idx_cols.append(part)
+                indexes.append(IndexMeta(name=idx_name, cols=idx_cols, unique=unique))
             cur.close()
-        if not rows:
-            return None
-        cols = []
-        for _cid, name, ctype, notnull, dflt, pk in rows:
-            cols.append(Col(
-                name=name,
-                type=norm_type(ctype) if ctype else "TEXT",
-                nullable=(not notnull),
-                default=norm_default(dflt),
-                pk=pk or 0,
-            ))
-        return TableMeta(t, cols)
+        return TableMeta(t, cols, indexes, "")
 
 
 # ---------------------------------------------------------------- 连接工厂
@@ -532,6 +623,53 @@ def diff_structure(src: TableMeta | None, dst: TableMeta | None, dialect: str):
             stmts.append(_drop_pk_sql(t, dialect))
         if src.pk_cols:
             stmts.append(_add_pk_sql(t, src.pk_cols, dialect))
+    # 索引差异 (跳过 SQLite, 因为 SQLite 的索引重建比较麻烦, 留给用户手动)
+    if dialect != "sqlite":
+        src_idx = {i.name: i for i in src.indexes}
+        dst_idx = {i.name: i for i in dst.indexes}
+        # 先 DROP 本侧多余的索引
+        for n, idx in dst_idx.items():
+            if n not in src_idx:
+                stmts.append(_drop_index_sql(t, n, dialect))
+        # 再 CREATE 本侧缺失的索引 (或重建定义不同的)
+        for n, idx in src_idx.items():
+            r = dst_idx.get(n)
+            if r is None or r.signature() != idx.signature():
+                if r is not None:
+                    stmts.append(_drop_index_sql(t, n, dialect))
+                stmts.append(_create_index_sql(t, idx, dialect))
+    else:
+        # SQLite: 只处理缺失/多余的索引, 不重建 (避免 SQL 复杂)
+        src_idx = {i.name: i for i in src.indexes}
+        dst_idx = {i.name: i for i in dst.indexes}
+        for n, idx in dst_idx.items():
+            if n not in src_idx:
+                stmts.append(_drop_index_sql(t, n, dialect))
+        for n, idx in src_idx.items():
+            if n not in dst_idx:
+                stmts.append(_create_index_sql(t, idx, dialect))
+    # 表备注 / 列备注 (Oracle/MySQL)
+    if dialect == "oracle":
+        if (src.table_comment or "") != (dst.table_comment or ""):
+            stmts.append("COMMENT ON TABLE %s IS '%s';" % (t, (src.table_comment or "").replace("'", "''")))
+        for c in src.cols:
+            d = dst_cols.get(c.name)
+            if d and (c.comment or "") != (d.comment or ""):
+                stmts.append("COMMENT ON COLUMN %s.%s IS '%s';" % (t, c.name, (c.comment or "").replace("'", "''")))
+    elif dialect == "mysql":
+        if (src.table_comment or "") != (dst.table_comment or ""):
+            stmts.append("ALTER TABLE `%s` COMMENT = '%s';" % (t, (src.table_comment or "").replace("'", "''")))
+        # MySQL: 列备注和列定义一起 MODIFY
+        for c in src.cols:
+            d = dst_cols.get(c.name)
+            if d and (c.comment or "") != (d.comment or ""):
+                # 如果该列未被 MODIFY 检测到, 单独加一条 MODIFY
+                if not (norm_type(c.type) != norm_type(d.type)
+                        or c.nullable != d.nullable
+                        or norm_default(c.default) != norm_default(d.default)):
+                    stmts.append("ALTER TABLE `%s` MODIFY COLUMN %s COMMENT '%s';"
+                                 % (t, col_def(c, "mysql", for_modify=True),
+                                    (c.comment or "").replace("'", "''")))
     return stmts
 
 
@@ -545,6 +683,26 @@ def _add_pk_sql(t, pk_cols, dialect):
     if dialect == "oracle":
         return "ALTER TABLE %s ADD PRIMARY KEY (%s);" % (t, ", ".join(pk_cols))
     return "ALTER TABLE `%s` ADD PRIMARY KEY (%s);" % (t, ", ".join("`%s`" % c for c in pk_cols))
+
+
+def _drop_index_sql(table, idx_name, dialect):
+    if dialect == "oracle":
+        return "DROP INDEX %s;" % idx_name
+    if dialect == "mysql":
+        return "DROP INDEX `%s` ON `%s`;" % (idx_name, table)
+    return 'DROP INDEX IF EXISTS "%s";' % idx_name
+
+
+def _create_index_sql(table, idx: "IndexMeta", dialect: str):
+    unique = "UNIQUE " if idx.unique else ""
+    if dialect == "oracle":
+        cols = ", ".join(idx.cols)
+        return "CREATE %sINDEX %s ON %s (%s);" % (unique, idx.name, table, cols)
+    if dialect == "mysql":
+        cols = ", ".join("`%s`" % c for c in idx.cols)
+        return "CREATE %sINDEX `%s` ON `%s` (%s);" % (unique, idx.name, table, cols)
+    cols = ", ".join('"%s"' % c for c in idx.cols)
+    return 'CREATE %sINDEX "%s" ON "%s" (%s);' % (unique, idx.name, table, cols)
 
 
 def structure_report(lmeta: TableMeta | None, rmeta: TableMeta | None):
@@ -570,12 +728,33 @@ def structure_report(lmeta: TableMeta | None, rmeta: TableMeta | None):
                                % (c.name, "可空" if c.nullable else "非空", "可空" if r.nullable else "非空"))
             if norm_default(c.default) != norm_default(r.default):
                 details.append("列 %s 默认值不同: 左=%s 右=%s" % (c.name, c.default, r.default))
+            if (c.comment or "") != (r.comment or ""):
+                details.append("列 %s 备注不同: 左=%s 右=%s" % (c.name, c.comment or "无", r.comment or "无"))
     for c in rmeta.cols:
         if c.name not in lcols:
             details.append("仅右侧有列 %s (%s)" % (c.name, c.type))
     if lmeta.pk_cols != rmeta.pk_cols:
         details.append("主键不同: 左=(%s) 右=(%s)"
                        % (", ".join(lmeta.pk_cols) or "无", ", ".join(rmeta.pk_cols) or "无"))
+    # 表备注
+    if (lmeta.table_comment or "") != (rmeta.table_comment or ""):
+        details.append("表备注不同: 左=%s 右=%s" % (lmeta.table_comment or "无", rmeta.table_comment or "无"))
+    # 索引对比
+    lidx = {i.name: i for i in lmeta.indexes}
+    ridx = {i.name: i for i in rmeta.indexes}
+    for n, idx in lidx.items():
+        r = ridx.get(n)
+        if r is None:
+            details.append("仅左侧有索引 %s (%s, 列: %s)"
+                           % (n, "唯一" if idx.unique else "非唯一", ", ".join(idx.cols)))
+        elif idx.signature() != r.signature():
+            details.append("索引 %s 定义不同: 左=(%s, %s) 右=(%s, %s)"
+                           % (n, "唯一" if idx.unique else "非唯一", ", ".join(idx.cols),
+                              "唯一" if r.unique else "非唯一", ", ".join(r.cols)))
+    for n, idx in ridx.items():
+        if n not in lidx:
+            details.append("仅右侧有索引 %s (%s, 列: %s)"
+                           % (n, "唯一" if idx.unique else "非唯一", ", ".join(idx.cols)))
     return ("same" if not details else "diff"), details
 
 

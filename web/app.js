@@ -108,6 +108,9 @@ function renderSelect(side) {
   const sel = $("#sel-" + side);
   const info = S.sides[side];
   const locked = otherTypeLocked(side);
+  // 另一侧已选的 profile_id (避免重复)
+  const other = side === "left" ? "right" : "left";
+  const otherPid = S.sides[other] ? S.sides[other].profile_id : null;
   sel.innerHTML = "";
   const opt0 = document.createElement("option");
   opt0.value = "";
@@ -116,6 +119,7 @@ function renderSelect(side) {
   for (const p of S.profiles) {
     if (locked && p.type !== locked) continue;
     if (info && p.id === info.profile_id) continue;
+    if (p.id === otherPid) continue;   // 另一侧已选, 在本侧隐藏
     const o = document.createElement("option");
     o.value = p.id;
     o.textContent = `${p.name || p.host} (${({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[p.type] || p.type})`;
@@ -193,12 +197,12 @@ async function doConnect(side) {
 
 async function doSwitch(side, pid) {
   if (pid === "__new__") {
-    // 新建连接 -> 回到连接信息页面
+    // 新建连接 -> 回到连接信息页面, 并重置下拉框 value (这样用户再选其他项能触发 change)
     const f = $("#form-" + side);
     fillForm(side, null);
     f.style.display = "";
     $("#ws-" + side).style.display = "none";
-    renderSelect(side);
+    $("#sel-" + side).value = "";
     return;
   }
   const p = S.profiles.find(x => x.id === pid);
@@ -385,14 +389,37 @@ function bindPane(side) {
     const other = side === "left" ? "right" : "left";
     $(".data-table-input", paneOf(other)).value = e.target.value;
   });
+  // 两侧 SQL 输出框高度同步
+  $(".sql-output", f).addEventListener("mouseup", () => syncSqlHeight(side));
   onTypeChange(side);
+}
+
+function syncSqlHeight(side) {
+  const src = $(".sql-output", $("#ws-" + side));
+  if (!src) return;
+  const other = side === "left" ? "right" : "left";
+  const dst = $(".sql-output", $("#ws-" + other));
+  if (!dst) return;
+  // 用 height 同步 (style.height 会覆盖 resize 的结果)
+  const h = src.style.height || src.getBoundingClientRect().height + "px";
+  dst.style.height = h;
 }
 
 function setMode(m) {
   if (!(S.sides.left && S.sides.right)) return;
-  S.mode = S.mode === m ? null : m;
+  // 切换模式时清空两侧的比对结果和 SQL 输出
+  if (S.mode !== m) {
+    for (const side of SIDES) {
+      const ws = $("#ws-" + side);
+      const ra = $(".result-area", ws);
+      const so = $(".sql-output", ws);
+      if (ra) ra.innerHTML = "";
+      if (so) so.value = "";
+    }
+  }
+  S.mode = m;
   renderModes();
-  if (m === "data" && S.mode === "data") loadTableList();
+  if (m === "data") loadTableList();
 }
 
 async function init() {
