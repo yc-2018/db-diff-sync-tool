@@ -175,6 +175,8 @@ body {
   gap: 10px;
 }
 .tool-block { display: flex; gap: 8px; align-items: flex-start; flex-shrink: 0; }
+.tool-data { flex-direction: column; gap: 8px; }
+.data-query-row { display: flex; width: 100%; gap: 8px; align-items: flex-start; }
 .table-input, .data-table-input {
   flex: 1;
   min-width: 0;
@@ -189,6 +191,56 @@ body {
 .data-table-input { height: 34px; }
 .table-input:focus, .data-table-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.12); }
 .tool-block .btn { flex-shrink: 0; height: 34px; }
+.where-editor {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: #fff;
+  overflow: hidden;
+  transition: border-color .15s, box-shadow .15s;
+}
+.where-editor:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,.12); }
+.where-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #eff6ff, #dbeafe);
+  color: var(--accent);
+  font: 700 11px Consolas, "Courier New", monospace;
+  letter-spacing: .6px;
+  border-right: 1px solid var(--border);
+}
+.where-body { min-width: 0; }
+.data-where-input {
+  display: block;
+  width: 100%;
+  min-height: 58px;
+  max-height: 130px;
+  padding: 8px 10px;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font: 12px/1.55 Consolas, "Courier New", monospace;
+  color: var(--text);
+  background: #fff;
+}
+.where-preview {
+  display: none;
+  border-top: 1px dashed var(--border);
+  padding: 6px 10px;
+  min-height: 30px;
+  background: #f8fafc;
+  font: 12px/1.65 Consolas, "Courier New", monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.where-preview.has-value { display: block; }
+.sql-kw { color: #7c3aed; font-weight: 700; }
+.sql-op { color: #dc2626; font-weight: 700; }
+.sql-num { color: #0369a1; }
+.sql-str { color: #16a34a; }
 
 /* ---------- 结果区 ---------- */
 .result-area {

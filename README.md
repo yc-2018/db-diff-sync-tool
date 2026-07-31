@@ -81,6 +81,7 @@ web/              网页 UI（index.html / style.css / app.js）
 tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文本校验
 启动.bat          启动应用
 初始化环境.bat     首次创建虚拟环境
+打包.bat          打包 exe，并在存在 Instant Client 时自动带上 Oracle 11g thick mode 依赖
 ```
 
 ## 自测
@@ -98,13 +99,31 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 
 ## 打包成 exe（可选）
 
+推荐直接双击：
+
 ```bat
-.venv\Scripts\python.exe -m pip install pyinstaller
-.venv\Scripts\pyinstaller --noconfirm --windowed --name 数据库同步比对工具 ^
-  --add-data "web;web" app.py
+打包.bat
 ```
 
 产物在 `dist\数据库同步比对工具\`。
+
+### Oracle 11g 依赖打包
+
+Oracle 11g 需要 `python-oracledb` 的 thick mode，必须随程序携带 Oracle Instant Client（例如 21.x Basic / Basic Light）。
+打包脚本会自动检查并打包下面目录：
+
+```text
+.oracle_client\instantclient_21_22\oci.dll
+```
+
+使用方式：
+
+1. 下载并解压 Oracle Instant Client for Windows x64（Basic 或 Basic Light）。
+2. 在项目根目录新建 `.oracle_client\instantclient_21_22\`。
+3. 将解压后的 `oci.dll`、`oraociei*.dll` / `oraociicus*.dll`、`oraons.dll`、`network\admin`（如有 `tnsnames.ora`）等文件放入该目录。
+4. 运行 `打包.bat`。脚本会把该目录打进 exe 产物，运行时会优先从打包目录初始化 Oracle thick mode。
+
+如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。只有连接 Oracle 11g 这类必须使用 thick mode 的旧版本时，才需要先放入 Instant Client 后再打包。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
