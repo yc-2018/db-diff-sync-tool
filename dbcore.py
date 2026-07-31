@@ -14,14 +14,35 @@ import datetime
 import decimal
 import os
 import re
+import sys
 import threading
 from dataclasses import dataclass, field
 
-# Oracle Instant Client 本地路径 (thick mode) - Oracle 11g 等旧版需要
-_ORACLE_CLIENT_DIR = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)),
-    ".oracle_client", "instantclient_21_22")
+# Oracle Instant Client 本地路径 (thick mode) - Oracle 11g 等旧版需要。
+# 打包后 PyInstaller 会把 data 文件放到 sys._MEIPASS / _internal 下，
+# 因此运行时同时检查源码目录、临时解包目录和 exe 所在目录。
+# 如果没有随包放置 Instant Client，不主动初始化 thick mode，
+# 让 python-oracledb 保持默认 thin mode；较新的 Oracle 不需要额外依赖。
+_ORACLE_CLIENT_SUBDIR = os.path.join(".oracle_client", "instantclient_21_22")
 _oracle_thick_initialized = False
+
+
+def _runtime_base_dirs():
+    dirs = [os.path.dirname(os.path.abspath(__file__))]
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        dirs.append(meipass)
+    if getattr(sys, "frozen", False):
+        dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+    out = []
+    for d in dirs:
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def _oracle_client_dirs():
+    return [os.path.join(base, _ORACLE_CLIENT_SUBDIR) for base in _runtime_base_dirs()]
 
 
 def _init_oracle_thick():
@@ -30,19 +51,16 @@ def _init_oracle_thick():
     if _oracle_thick_initialized:
         return
     import oracledb
-    lib_dir = _ORACLE_CLIENT_DIR
-    if os.path.isdir(lib_dir):
-        try:
-            oracledb.init_oracle_client(lib_dir=lib_dir)
-            _oracle_thick_initialized = True
-            return
-        except Exception:
-            pass
-    try:
-        oracledb.init_oracle_client()
-        _oracle_thick_initialized = True
-    except Exception:
-        pass
+    for lib_dir in _oracle_client_dirs():
+        if os.path.isdir(lib_dir):
+            try:
+                oracledb.init_oracle_client(lib_dir=lib_dir)
+                _oracle_thick_initialized = True
+                return
+            except Exception:
+                pass
+    # 没有找到随程序携带的 Instant Client 时，不调用 init_oracle_client()。
+    # 这样不会因为本机/打包目录缺少 oci.dll 而影响默认 thin mode 连接新版 Oracle。
 
 
 def parse_connect_url(url):

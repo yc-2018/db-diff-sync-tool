@@ -17,6 +17,34 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+
+function renderWherePreview(side) {
+  const pane = paneOf(side);
+  const input = $(".data-where-input", pane);
+  const preview = $(".where-preview", pane);
+  if (!input || !preview) return;
+  const raw = input.value.trim();
+  if (!raw) {
+    preview.innerHTML = "";
+    preview.classList.remove("has-value");
+    return;
+  }
+  let html = esc(raw);
+  html = html.replace(/(&#39;[^\n]*?&#39;|&quot;[^\n]*?&quot;)/g, '<span class="sql-str">$1</span>');
+  html = html.replace(/\b(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|EXISTS)\b/gi, '<span class="sql-kw">$1</span>');
+  html = html.replace(/(=|&lt;&gt;|!=|&gt;=|&lt;=|&gt;|&lt;)/g, '<span class="sql-op">$1</span>');
+  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="sql-num">$1</span>');
+  preview.innerHTML = html;
+  preview.classList.add("has-value");
+}
+
+function syncWhereInput(side, value) {
+  const other = side === "left" ? "right" : "left";
+  $(".data-where-input", paneOf(other)).value = value;
+  renderWherePreview(side);
+  renderWherePreview(other);
+}
+
 function toast(msg, ms) {
   const t = $("#toast");
   t.textContent = msg;
@@ -401,11 +429,9 @@ function bindPane(side) {
     const other = side === "left" ? "right" : "left";
     $(".data-table-input", paneOf(other)).value = e.target.value;
   });
-  // 两侧 where 输入保持同步
-  $(".data-where-input", f).addEventListener("input", e => {
-    const other = side === "left" ? "right" : "left";
-    $(".data-where-input", paneOf(other)).value = e.target.value;
-  });
+  // 两侧 where 输入保持同步，并在下方预览中做简单 SQL 关键字高亮
+  $(".data-where-input", f).addEventListener("input", e => syncWhereInput(side, e.target.value));
+  renderWherePreview(side);
   // SQL 输出区拉杆拖拽 (两侧同步高度)
   bindSqlResizer(side);
   onTypeChange(side);
@@ -423,7 +449,8 @@ function bindSqlResizer(side) {
     document.body.style.userSelect = "none";
     function onMove(ev) {
       const dh = ev.clientY - startY;
-      let h = Math.max(100, Math.min(800, startH + dh));
+      // 拉杆在 SQL 区顶部：向上拖应增高，向下拖应缩小。
+      let h = Math.max(100, Math.min(800, startH - dh));
       area.style.height = h + "px";
       // 同步对侧
       const other = side === "left" ? "right" : "left";

@@ -79,9 +79,17 @@
         <button class="btn btn-primary btn-compare-struct">确定</button>
       </div>
       <div class="tool-data tool-block" style="display:none">
-        <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
-        <input class="data-where-input" placeholder="where 条件 (可选, 如: id > 100 and status = 1)">
-        <button class="btn btn-primary btn-compare-data">确定</button>
+        <div class="data-query-row">
+          <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+          <button class="btn btn-primary btn-compare-data">确定</button>
+        </div>
+        <div class="where-editor">
+          <div class="where-label">WHERE</div>
+          <div class="where-body">
+            <textarea class="data-where-input" rows="2" spellcheck="false" placeholder="可选过滤条件，支持换行，例如：&#10;id &gt; 100 and status = 1"></textarea>
+            <div class="where-preview" aria-hidden="true"></div>
+          </div>
+        </div>
       </div>
       <div class="result-area"></div>
       <div class="sql-area">
@@ -153,9 +161,17 @@
         <button class="btn btn-primary btn-compare-struct">确定</button>
       </div>
       <div class="tool-data tool-block" style="display:none">
-        <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
-        <input class="data-where-input" placeholder="where 条件 (可选, 如: id > 100 and status = 1)">
-        <button class="btn btn-primary btn-compare-data">确定</button>
+        <div class="data-query-row">
+          <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+          <button class="btn btn-primary btn-compare-data">确定</button>
+        </div>
+        <div class="where-editor">
+          <div class="where-label">WHERE</div>
+          <div class="where-body">
+            <textarea class="data-where-input" rows="2" spellcheck="false" placeholder="可选过滤条件，支持换行，例如：&#10;id &gt; 100 and status = 1"></textarea>
+            <div class="where-preview" aria-hidden="true"></div>
+          </div>
+        </div>
       </div>
       <div class="result-area"></div>
       <div class="sql-area">
