@@ -11,5 +11,8 @@ Invoke-WebRequest -Uri $url -OutFile $zip
 Expand-Archive -Path $zip -DestinationPath . -Force
 Remove-Item $zip
 
+> 备用下载链接1 https://feishu.doubao.com/drive/file/UpO6bMgivon5CSxRuWEc7daAnQd
+> 链接2: https://yun.139.com/shareweb/#/w/i/2wFGam2SspRdd  提取码:2qfw  
+
 解压后此目录下应存在 instantclient_21_22 子目录。
 ![img.png](img.png)
