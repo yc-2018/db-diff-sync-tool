@@ -1,0 +1,108 @@
+name: Build and release
+
+on:
+  push:
+    branches:
+      - "**"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pywebview oracledb pymysql pyinstaller
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          python tests/selftest.py
+          python tests/test_where.py
+
+      - name: Build Windows application
+        shell: pwsh
+        run: |
+          $arguments = @(
+            "--noconfirm"
+            "--clean"
+            "--windowed"
+            "--name", "数据库同步比对工具"
+            "--collect-all", "oracledb"
+            "--add-data", "web;web"
+            "app.py"
+          )
+
+          $oracleClient = ".oracle_client\instantclient_21_22"
+          if (Test-Path "$oracleClient\oci.dll") {
+            $arguments = $arguments[0..8] + @(
+              "--add-data", "$oracleClient;.oracle_client\instantclient_21_22"
+            ) + $arguments[9]
+          }
+
+          pyinstaller @arguments
+
+      - name: Create release archive
+        id: package
+        shell: pwsh
+        run: |
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $archive = "db-sync-tool-windows-x64-$shortSha.zip"
+          Compress-Archive -Path "dist\数据库同步比对工具\*" -DestinationPath $archive
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+          "tag=build-${{ github.sha }}" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-sync-tool-windows-x64-${{ github.sha }}
+          path: ${{ steps.package.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create or update prerelease
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.tag }}
+          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive }}
+        run: |
+          $title = "自动构建 ${{ github.ref_name }}@${{ github.sha }}"
+          $notes = @"
+          本版本由 GitHub Actions 在推送后自动构建。
+
+          - 分支：${{ github.ref_name }}
+          - 提交：${{ github.sha }}
+          - 平台：Windows x64
+          - Oracle 模式：默认使用 thin mode，发布环境未配置 Instant Client 时不支持 Oracle 11g
+          "@
+
+          gh release view $env:RELEASE_TAG 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:RELEASE_TAG $env:RELEASE_ARCHIVE --clobber
+            gh release edit $env:RELEASE_TAG --title $title --notes $notes --prerelease
+          } else {
+            gh release create $env:RELEASE_TAG $env:RELEASE_ARCHIVE `
+              --target "${{ github.sha }}" `
+              --title $title `
+              --notes $notes `
+              --prerelease
+          }

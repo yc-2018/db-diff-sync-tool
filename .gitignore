@@ -3,3 +3,6 @@ __pycache__/
 *.pyc
 .oracle_client/
 *.log
+build/
+dist/
+*.spec
