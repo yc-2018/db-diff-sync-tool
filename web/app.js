@@ -290,7 +290,14 @@ async function doConnect(side) {
 
 async function doSwitch(side, pid) {
   if (pid === "__new__") {
-    // 新建连接 -> 回到连接信息页面
+    // 新建连接: 先断开当前侧连接, 清空表单
+    if (S.sides[side]) {
+      setBusy(true);
+      try {
+        const r = await api("disconnect", side);
+        if (r.ok) applyState(r);
+      } finally { setBusy(false); }
+    }
     fillForm(side, null);
     $("#form-" + side).style.display = "";
     $("#ws-" + side).style.display = "none";
@@ -591,18 +598,25 @@ async function doRefresh(side) {
   }
 }
 
-async function doEdit(side) {
-  // 进入编辑模式: 显示表单, 预填充当前连接的 profile, 但不断开连接
+async async function doEdit(side) {
+  // 编辑模式: 先断开当前侧, 再回填表单, 进入编辑态
   const info = S.sides[side];
   if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
   const p = S.profiles.find(x => x.id === info.profile_id);
   if (!p) { toast("找不到该数据源的配置"); return; }
-  // 记录编辑前状态, 供取消恢复
+  // 记录编辑前状态, 供取消时重连
   paneOf(side)._editBackup = { hadConn: true, profileId: info.profile_id };
+  // 断开当前侧
+  setBusy(true);
+  try {
+    const r = await api("disconnect", side);
+    if (r.ok) applyState(r);
+  } finally { setBusy(false); }
+  // 回填表单
   fillForm(side, p);
   $("#form-" + side).style.display = "";
   $("#ws-" + side).style.display = "none";
-  // 隐藏编辑/断开/刷新按钮, 进入编辑态
+  // 隐藏编辑/断开/刷新按钮
   $("#edit-" + side).style.display = "none";
   $("#disc-" + side).style.display = "none";
   $("#refresh-" + side).style.display = "none";
@@ -616,7 +630,7 @@ async function doEdit(side) {
   setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
 }
 
-function doCancelEdit(side) {
+async function doCancelEdit(side) {
   const f = paneOf(side);
   const backup = f._editBackup;
   delete f._editBackup;
@@ -627,11 +641,16 @@ function doCancelEdit(side) {
   const btnCancel = $(".btn-cancel-edit", f);
   if (btnCancel) btnCancel.style.display = "none";
   setFormMsg(side, "", "");
-  if (backup && backup.hadConn) {
-    // 之前已连接: 回到工作区, 不动连接
-    $("#form-" + side).style.display = "none";
-    $("#ws-" + side).style.display = "";
-    renderPane(side);
+  if (backup && backup.hadConn && backup.profileId) {
+    // 之前已连接: 重新连回去
+    const p = S.profiles.find(x => x.id === backup.profileId);
+    if (!p) { fillForm(side, null); return; }
+    setBusy(true);
+    try {
+      const r = await api("connect", side, p, false);
+      if (r.ok) { applyState(r); toast((side === "left" ? "左侧" : "右侧") + "已恢复连接"); }
+      else { fillForm(side, null); }
+    } finally { setBusy(false); }
   } else {
     // 之前未连接: 回到空表单
     fillForm(side, null);
