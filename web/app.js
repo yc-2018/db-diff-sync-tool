@@ -201,6 +201,7 @@ function renderPane(side) {
   $("#disc-" + side).style.display = info ? "" : "none";
   $("#refresh-" + side).style.display = info ? "" : "none";
   $("#edit-" + side).style.display = info ? "" : "none";
+  $("#del-" + side).style.display = info ? "" : "none";
   if (info) {
     form.style.display = "none";
     ws.style.display = "";
@@ -245,7 +246,7 @@ async function doTest(side) {
 
 async function doConnect(side) {
   const p = formProfile(side);
-  const remember = $(".f-save", paneOf(side)).checked;
+  const remember = true;
   const btnConnect = $(".btn-connect", paneOf(side));
   const isEdit = btnConnect.dataset.editMode === "1";
   // 前端名称唯一校验
@@ -299,7 +300,7 @@ async function doSwitch(side, pid) {
     btnConnect.textContent = "连 接";
     delete btnConnect.dataset.editMode;
     const btnCancel = $(".btn-cancel-edit", paneOf(side));
-    if (btnCancel) btnCancel.style.display = "none";
+    if (btnCancel) btnCancel.style.display = "";
     delete paneOf(side)._editBackup;
     return;
   }
@@ -314,6 +315,21 @@ async function doSwitch(side, pid) {
   } finally {
     setBusy(false);
   }
+}
+
+async function doDelete(side) {
+  const info = S.sides[side];
+  if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
+  const p = S.profiles.find(x => x.id === info.profile_id);
+  const name = p ? (p.name || p.id) : "该数据源";
+  if (!confirm("确认删除数据源「" + name + "」?\n删除后不可恢复。")) return;
+  setBusy(true);
+  try {
+    const r = await api("delete_profile", info.profile_id);
+    if (!r.ok) { toast(r.msg || "删除失败"); return; }
+    applyState(r);
+    toast((side === "left" ? "左侧" : "右侧") + "已删除并断开");
+  } finally { setBusy(false); }
 }
 
 async function doDisconnect(side) {
@@ -488,8 +504,11 @@ function bindPane(side) {
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $("#edit-" + side).addEventListener("click", () => doEdit(side));
+  $("#del-" + side).addEventListener("click", () => doDelete(side));
   const btnCancel = $(".btn-cancel-edit", paneOf(side));
   if (btnCancel) btnCancel.addEventListener("click", () => doCancelEdit(side));
+  const formEl = $("#form-" + side);
+  if (formEl) formEl.addEventListener("click", e => onModalBackdropClick(side, e));
   // 自定义下拉
   const dd = $("#dd-" + side);
   const ddDisplay = $("#dd-display-" + side);
@@ -623,6 +642,15 @@ function doCancelEdit(side) {
   if (btnCancel) btnCancel.style.display = "none";
   setFormMsg(side, "", "");
 }
+
+// 点击模态框遮罩空白处关闭
+function onModalBackdropClick(side, e) {
+  // 只在点击的是 .conn-form.modal-mode 本身(遮罩)时关闭, 点表单内容不关闭
+  if (e.target === e.currentTarget) {
+    doCancelEdit(side);
+  }
+}
+
 
 function setMode(m) {
   if (!(S.sides.left && S.sides.right)) return;

@@ -114,76 +114,50 @@ body {
 .conn-form { padding: 16px 18px; overflow-y: auto; }
 .conn-form.modal-mode {
   position: fixed; inset: 0; z-index: 1000;
-  background: rgba(0,0,0,0.45);
+  background: rgba(15,23,42,0.55);
   padding: 40px 16px;
   overflow-y: auto;
-  display: block !important;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
 }
-.conn-form.modal-mode .form-title,
-.conn-form.modal-mode .frow,
-.conn-form.modal-mode .f-host-row,
-.conn-form.modal-mode .fbtns,
-.conn-form.modal-mode .form-msg {
-  max-width: 560px; margin-left: auto; margin-right: auto;
-  background: #fff;
+.conn-form.modal-mode > * {
+  width: 100%; max-width: 560px;
+  background: var(--panel);
   padding-left: 20px; padding-right: 20px;
+  box-sizing: border-box;
+  margin: 0;
 }
-.conn-form.modal-mode .form-title {
-  padding-top: 16px; padding-bottom: 16px;
-  border-radius: 8px 8px 0 0;
+.conn-form.modal-mode > .form-title {
+  padding-top: 18px; padding-bottom: 14px;
+  border: 1px solid var(--border); border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  display: block;
 }
-.conn-form.modal-mode .fbtns { padding-top: 8px; padding-bottom: 16px; }
-.conn-form.modal-mode .form-msg {
-  padding-top: 4px; padding-bottom: 16px;
-  border-radius: 0 0 8px 8px;
-}
-.conn-form.modal-mode .f-host-row { display: flex; }
-
-.form-title { display: block; }
-.conn-form.modal-mode > .form-title,
 .conn-form.modal-mode > .frow,
-.conn-form.modal-mode > .f-host-row,
-.conn-form.modal-mode > .fbtns,
-.conn-form.modal-mode > .form-msg {
+.conn-form.modal-mode > .f-host-row {
   display: flex;
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
 }
-.conn-form.modal-mode .f-host-row { display: flex; }
-.conn-form.modal-mode .frow { display: flex; }
-.conn-form.modal-mode > .frow.f-url-row,
-.conn-form.modal-mode > .frow,
-.conn-form.modal-mode > .f-host-row,
-.conn-form.modal-mode > .frow.f-ora,
-.conn-form.modal-mode > .frow.f-mysql,
-.conn-form.modal-mode > .frow.f-sqlite,
-.conn-form.modal-mode > .frow.f-userrow,
-.conn-form.modal-mode > .frow.f-pwdrow,
-.conn-form.modal-mode > .frow.f-remember,
-.conn-form.modal-mode > .fbtns,
+.conn-form.modal-mode > .f-host-row { display: flex; gap: 10px; padding-bottom: 10px; }
+.conn-form.modal-mode > .frow { padding-top: 0; padding-bottom: 10px; }
+.conn-form.modal-mode > .frow.f-remember { padding-bottom: 6px; }
+.conn-form.modal-mode > .fbtns {
+  padding-top: 6px; padding-bottom: 16px;
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+}
 .conn-form.modal-mode > .form-msg {
-  background: var(--bg-card);
+  padding-top: 0; padding-bottom: 16px;
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+  margin-top: -1px;
 }
-.conn-form.modal-mode > .form-title { background: var(--bg-card); padding: 16px 18px 0 18px; margin: 0; }
-.conn-form.modal-mode > .fbtns { background: var(--bg-card); padding: 0 18px 16px 18px; }
-.conn-form.modal-mode > .form-msg { background: var(--bg-card); padding: 0 18px 16px 18px; margin: 0; }
-.conn-form.modal-mode > .f-url-row,
-.conn-form.modal-mode > .frow,
-.conn-form.modal-mode > .f-host-row,
-.conn-form.modal-mode > .f-ora,
-.conn-form.modal-mode > .f-mysql,
-.conn-form.modal-mode > .f-sqlite,
-.conn-form.modal-mode > .f-userrow,
-.conn-form.modal-mode > .f-pwdrow,
-.conn-form.modal-mode > .f-remember {
-  background: var(--bg-card); padding: 0 18px; margin: 0; flex-direction: row; align-items: center;
-}
-.conn-form.modal-mode .form-title { border-radius: 8px 8px 0 0; }
-.conn-form.modal-mode > .fbtns,
-.conn-form.modal-mode > .form-msg { border-radius: 0 0 8px 8px; }
-.conn-form.modal-mode > *:not(.form-title):not(.fbtns):not(.form-msg):not(.f-host-row):not(.frow):not(.f-ora):not(.f-mysql):not(.f-sqlite):not(.f-userrow):not(.f-pwdrow):not(.f-remember) {
-  display: none;
-}
-.conn-form.modal-mode > *:first-child { margin-top: 40px; border-radius: 8px 8px 0 0; }
-.conn-form.modal-mode > *:last-child { border-radius: 0 0 8px 8px; margin-bottom: 40px; }
+.conn-form.modal-mode > .fbtns + .form-msg { border-top: none; border-radius: 0 0 10px 10px; }
+.conn-form.modal-mode > .fbtns:not(:last-child) { border-bottom: none; border-radius: 0; }
+
 .form-title { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: var(--text); }
 .frow { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .frow > label:first-child { width: 52px; flex-shrink: 0; color: var(--text-dim); text-align: right; }
@@ -237,6 +211,7 @@ body {
 .btn-disc { color: var(--err); border-color: #fecaca; }
 .btn-refresh { color: #0369a1; border-color: #bae6fd; }
 .btn-edit { color: #6d28d9; border-color: #ddd6fe; }
+.btn-del { color: var(--err); border-color: #fecaca; }
 .btn-cancel-edit { color: var(--text-dim); border-color: var(--border-strong); }
 
 /* 标签单选按钮组 */
