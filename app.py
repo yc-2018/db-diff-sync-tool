@@ -74,6 +74,11 @@ def save_session(sess):
 
 def upsert_profile(p):
     profiles = load_profiles()
+    name = (p.get("name") or "").strip()
+    if name:
+        for q in profiles:
+            if q.get("id") != p.get("id") and (q.get("name") or "").strip() == name:
+                raise DBError("配置名「%s」已存在, 请使用其他名称" % name)
     if not p.get("id"):
         p["id"] = uuid.uuid4().hex[:12]
     for i, q in enumerate(profiles):
@@ -226,6 +231,12 @@ class Api:
             if not p.get("id"):
                 return {"ok": False, "msg": "缺少配置 id"}
             profiles = load_profiles()
+            # 名称唯一校验
+            name = (p.get("name") or "").strip()
+            if name:
+                for q in profiles:
+                    if q.get("id") != p["id"] and (q.get("name") or "").strip() == name:
+                        return {"ok": False, "msg": "配置名「%s」已存在, 请使用其他名称" % name}
             found = False
             for i, q in enumerate(profiles):
                 if q.get("id") == p["id"]:

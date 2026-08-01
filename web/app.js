@@ -153,7 +153,10 @@ function renderSelect(side) {
   // 显示文本
   if (info) {
     const typeTxt = ({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[info.type] || info.type;
-    display.textContent = `${info.name} (${typeTxt})`;
+    const tagHtml = info.tag === "test" ? '<span class="tag-badge tag-test">测试</span>'
+      : info.tag === "prod" ? '<span class="tag-badge tag-prod">正式</span>'
+      : info.tag === "dev" ? '<span class="tag-badge tag-dev">开发</span>' : "";
+    display.innerHTML = `${esc(info.name)} (${typeTxt})${tagHtml}`;
   } else {
     display.textContent = "-- 选择已保存的连接 --";
   }
@@ -198,22 +201,6 @@ function renderPane(side) {
   $("#disc-" + side).style.display = info ? "" : "none";
   $("#refresh-" + side).style.display = info ? "" : "none";
   $("#edit-" + side).style.display = info ? "" : "none";
-  // 侧边标签后追加 tag 徽章
-  const sideTag = $(".side-tag.side-" + side);
-  if (sideTag) {
-    let badge = sideTag.querySelector(".tag-badge");
-    if (badge) badge.remove();
-    if (info && info.tag) {
-      const cls = info.tag === "test" ? "tag-test" : info.tag === "prod" ? "tag-prod" : info.tag === "dev" ? "tag-dev" : "";
-      const txt = info.tag === "test" ? "测试" : info.tag === "prod" ? "正式" : info.tag === "dev" ? "开发" : "";
-      if (cls) {
-        badge = document.createElement("span");
-        badge.className = "tag-badge " + cls;
-        badge.textContent = txt;
-        sideTag.appendChild(badge);
-      }
-    }
-  }
   if (info) {
     form.style.display = "none";
     ws.style.display = "";
@@ -261,6 +248,16 @@ async function doConnect(side) {
   const remember = $(".f-save", paneOf(side)).checked;
   const btnConnect = $(".btn-connect", paneOf(side));
   const isEdit = btnConnect.dataset.editMode === "1";
+  // 前端名称唯一校验
+  const name = (p.name || "").trim();
+  if (name) {
+    for (const q of S.profiles) {
+      if (q.id !== p.id && (q.name || "").trim() === name) {
+        setFormMsg(side, "配置名「" + name + "」已存在, 请使用其他名称", "err");
+        return;
+      }
+    }
+  }
   setFormMsg(side, isEdit ? "保存中…" : "连接中…", "");
   setBusy(true);
   try {
