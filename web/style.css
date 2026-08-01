@@ -165,6 +165,7 @@ body {
 .btn-disc { color: var(--err); border-color: #fecaca; }
 .btn-refresh { color: #0369a1; border-color: #bae6fd; }
 .btn-edit { color: #6d28d9; border-color: #ddd6fe; }
+.btn-cancel-edit { color: var(--text-dim); border-color: var(--border-strong); }
 
 /* 标签单选按钮组 */
 .f-tag-group {

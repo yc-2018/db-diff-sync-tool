@@ -282,6 +282,9 @@ async function doConnect(side) {
     setBusy(false);
     btnConnect.textContent = "连 接";
     delete btnConnect.dataset.editMode;
+    const btnCancel = $(".btn-cancel-edit", paneOf(side));
+    if (btnCancel) btnCancel.style.display = "none";
+    delete paneOf(side)._editBackup;
   }
 }
 
@@ -295,6 +298,9 @@ async function doSwitch(side, pid) {
     const btnConnect = $(".btn-connect", paneOf(side));
     btnConnect.textContent = "连 接";
     delete btnConnect.dataset.editMode;
+    const btnCancel = $(".btn-cancel-edit", paneOf(side));
+    if (btnCancel) btnCancel.style.display = "none";
+    delete paneOf(side)._editBackup;
     return;
   }
   const p = S.profiles.find(x => x.id === pid);
@@ -482,6 +488,8 @@ function bindPane(side) {
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $("#edit-" + side).addEventListener("click", () => doEdit(side));
+  const btnCancel = $(".btn-cancel-edit", paneOf(side));
+  if (btnCancel) btnCancel.addEventListener("click", () => doCancelEdit(side));
   // 自定义下拉
   const dd = $("#dd-" + side);
   const ddDisplay = $("#dd-display-" + side);
@@ -505,9 +513,13 @@ function bindPane(side) {
       fillForm(side, p);
       $("#form-" + side).style.display = "";
       $("#ws-" + side).style.display = "none";
+      // 记录编辑前状态: 从下拉进编辑, 之前可能已连或未连
+      paneOf(side)._editBackup = { hadConn: !!(S.sides[side]), profileId: S.sides[side] ? S.sides[side].profile_id : null };
       const btnConnect = $(".btn-connect", paneOf(side));
       btnConnect.textContent = "保存并重连";
       btnConnect.dataset.editMode = "1";
+      const btnCancel = $(".btn-cancel-edit", paneOf(side));
+      if (btnCancel) btnCancel.style.display = "";
       setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
     }
   });
@@ -585,6 +597,8 @@ async function doEdit(side) {
   if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
   const p = S.profiles.find(x => x.id === info.profile_id);
   if (!p) { toast("找不到该数据源的配置"); return; }
+  // 记录编辑前状态, 供取消恢复
+  paneOf(side)._editBackup = { hadConn: true, profileId: info.profile_id };
   fillForm(side, p);
   $("#form-" + side).style.display = "";
   $("#ws-" + side).style.display = "none";
@@ -592,11 +606,36 @@ async function doEdit(side) {
   $("#edit-" + side).style.display = "none";
   $("#disc-" + side).style.display = "none";
   $("#refresh-" + side).style.display = "none";
+  // 显示取消按钮
+  const btnCancel = $(".btn-cancel-edit", paneOf(side));
+  if (btnCancel) btnCancel.style.display = "";
   // 修改连接按钮文案
   const btnConnect = $(".btn-connect", paneOf(side));
   btnConnect.textContent = "保存并重连";
   btnConnect.dataset.editMode = "1";
   setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
+}
+
+function doCancelEdit(side) {
+  const f = paneOf(side);
+  const backup = f._editBackup;
+  delete f._editBackup;
+  // 清理编辑态
+  const btnConnect = $(".btn-connect", f);
+  btnConnect.textContent = "连 接";
+  delete btnConnect.dataset.editMode;
+  const btnCancel = $(".btn-cancel-edit", f);
+  if (btnCancel) btnCancel.style.display = "none";
+  setFormMsg(side, "", "");
+  if (backup && backup.hadConn) {
+    // 之前已连接: 回到工作区, 不动连接
+    $("#form-" + side).style.display = "none";
+    $("#ws-" + side).style.display = "";
+    renderPane(side);
+  } else {
+    // 之前未连接: 回到空表单
+    fillForm(side, null);
+  }
 }
 
 function setMode(m) {
