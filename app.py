@@ -139,8 +139,7 @@ class Api:
             p = None
             for q in profiles:
                 if q.get("id") == pid:
-                    p = dict(q)
-                    p["password"] = _dec(p.pop("password_enc", ""))
+                    p = dict(q)   # load_profiles 已把 password_enc 解密为 password
                     break
             if not p:
                 # profile 已被删除, 清除 session 记录
