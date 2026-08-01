@@ -482,9 +482,6 @@ function bindPane(side) {
   $(".f-url", f).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doParseUrl(side); } });
   $(".btn-test", f).addEventListener("click", () => doTest(side));
   $(".btn-connect", f).addEventListener("click", () => doConnect(side));
-  $("#sel-" + side).addEventListener("change", e => {
-    if (e.target.value) doSwitch(side, e.target.value);
-  });
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $("#edit-" + side).addEventListener("click", () => doEdit(side));
