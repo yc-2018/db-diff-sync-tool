@@ -548,16 +548,17 @@ TYPE_NAMES = {"oracle": "Oracle", "mysql": "MySQL", "sqlite": "SQLite"}
 
 # ---------------------------------------------------------------- 结构比对
 
-def col_def(c: Col, dialect: str, for_modify=False) -> str:
+def col_def(c: Col, dialect: str, for_modify=False, include_nullability=True) -> str:
     q = "`" if dialect == "mysql" else ('"' if dialect == "sqlite" else "")
     name = "%s%s%s" % (q, c.name, q) if q else c.name
     parts = [name, c.type]
     if c.default is not None:
         parts.append("DEFAULT %s" % c.default)
-    if not c.nullable:
-        parts.append("NOT NULL")
-    elif for_modify and dialect in ("oracle", "mysql"):
-        parts.append("NULL")
+    if include_nullability:
+        if not c.nullable:
+            parts.append("NOT NULL")
+        elif for_modify and dialect in ("oracle", "mysql"):
+            parts.append("NULL")
     return " ".join(parts)
 
 
@@ -632,7 +633,10 @@ def diff_structure(src: TableMeta | None, dst: TableMeta | None, dialect: str):
         if adds:
             stmts.append("ALTER TABLE %s ADD (\n  %s\n);" % (t, ",\n  ".join(col_def(c, "oracle") for c in adds)))
         for c in mods:
-            stmts.append("ALTER TABLE %s MODIFY (%s);" % (t, col_def(c, "oracle", for_modify=True)))
+            nullable_changed = c.nullable != dst_cols[c.name].nullable
+            stmts.append("ALTER TABLE %s MODIFY (%s);" %
+                         (t, col_def(c, "oracle", for_modify=True,
+                                     include_nullability=nullable_changed)))
         for c in drops:
             stmts.append("ALTER TABLE %s DROP COLUMN %s;" % (t, c.name))
     else:  # mysql

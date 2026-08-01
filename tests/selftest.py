@@ -139,7 +139,7 @@ def main():
         print(s)
     joined_o = "\n".join(o_sql)
     assert "ALTER TABLE EMP ADD (" in joined_o and "EXTRA NUMBER(5,2)" in joined_o
-    assert "ALTER TABLE EMP MODIFY (NAME VARCHAR2(100 CHAR) DEFAULT 'anon' NULL)" in joined_o
+    assert "ALTER TABLE EMP MODIFY (NAME VARCHAR2(100 CHAR) DEFAULT 'anon');" in joined_o
     assert "ALTER TABLE EMP DROP COLUMN OLD_COL;" in joined_o
     assert any("CREATE TABLE EMP" in s for s in dbcore.diff_structure(src, None, "oracle"))
     assert any("DROP TABLE EMP;" in s for s in dbcore.diff_structure(None, dst, "oracle"))
@@ -147,6 +147,21 @@ def main():
     assert "ALTER TABLE `EMP` ADD COLUMN `EXTRA` DECIMAL(5,2);" not in joined_m  # 用源类型原样
     assert "ADD COLUMN `EXTRA` NUMBER(5,2);" in joined_m
     assert "MODIFY COLUMN `NAME` VARCHAR2(100 CHAR) DEFAULT 'anon' NULL;" in joined_m
+
+    # Oracle 仅在可空性确实变化时输出 NULL / NOT NULL，避免默认值差异触发 ORA-01451
+    default_src = dbcore.TableMeta("T", [dbcore.Col("CREATE_TIME", "DATE", True, "sysdate")])
+    default_dst = dbcore.TableMeta("T", [dbcore.Col("CREATE_TIME", "DATE", True, None)])
+    assert dbcore.diff_structure(default_src, default_dst, "oracle") == [
+        "ALTER TABLE T MODIFY (CREATE_TIME DATE DEFAULT sysdate);"
+    ]
+    nullable_src = dbcore.TableMeta("T", [dbcore.Col("C", "VARCHAR2(10)", True)])
+    not_null_dst = dbcore.TableMeta("T", [dbcore.Col("C", "VARCHAR2(10)", False)])
+    assert dbcore.diff_structure(nullable_src, not_null_dst, "oracle") == [
+        "ALTER TABLE T MODIFY (C VARCHAR2(10) NULL);"
+    ]
+    assert dbcore.diff_structure(not_null_dst, nullable_src, "oracle") == [
+        "ALTER TABLE T MODIFY (C VARCHAR2(10) NOT NULL);"
+    ]
 
     # 字面量
     import datetime, decimal
