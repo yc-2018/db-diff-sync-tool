@@ -28,6 +28,7 @@
       <span class="dot" id="dot-left"></span>
       <button class="btn-mini btn-disc" id="disc-left" title="断开当前连接" style="display:none">断开</button>
       <button class="btn-mini btn-refresh" id="refresh-left" title="刷新连接状态和表列表" style="display:none">刷新</button>
+      <button class="btn-mini btn-edit" id="edit-left" title="编辑当前数据源配置" style="display:none">编辑</button>
     </div>
 
     <!-- 连接表单 -->
@@ -45,6 +46,14 @@
         </select>
       </div>
       <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
+      <div class="frow"><label>标签</label>
+        <select class="f-tag">
+          <option value="">(无)</option>
+          <option value="test">测试</option>
+          <option value="prod">正式</option>
+          <option value="dev">开发</option>
+        </select>
+      </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
         <div class="frow f-port"><label>端口</label><input class="f-portnum" value="1521"></div>
@@ -112,6 +121,7 @@
       <span class="dot" id="dot-right"></span>
       <button class="btn-mini btn-disc" id="disc-right" title="断开当前连接" style="display:none">断开</button>
       <button class="btn-mini btn-refresh" id="refresh-right" title="刷新连接状态和表列表" style="display:none">刷新</button>
+      <button class="btn-mini btn-edit" id="edit-right" title="编辑当前数据源配置" style="display:none">编辑</button>
     </div>
 
     <div class="conn-form" id="form-right">
@@ -128,6 +138,14 @@
         </select>
       </div>
       <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
+      <div class="frow"><label>标签</label>
+        <select class="f-tag">
+          <option value="">(无)</option>
+          <option value="test">测试</option>
+          <option value="prod">正式</option>
+          <option value="dev">开发</option>
+        </select>
+      </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
         <div class="frow f-port"><label>端口</label><input class="f-portnum" value="1521"></div>

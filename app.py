@@ -87,7 +87,8 @@ class Api:
             return None
         p = s["profile"]
         return {"profile_id": p.get("id"), "name": p.get("name") or p.get("host"),
-                "type": p.get("type"), "type_name": dbcore.TYPE_NAMES.get(p.get("type"), p.get("type"))}
+                "type": p.get("type"), "type_name": dbcore.TYPE_NAMES.get(p.get("type"), p.get("type")),
+                "tag": p.get("tag", "")}
 
     def _state(self):
         return {"ok": True,
@@ -153,6 +154,28 @@ class Api:
         profiles = [q for q in load_profiles() if q.get("id") != pid]
         save_profiles(profiles)
         return {"ok": True}
+
+    def update_profile(self, p):
+        """更新已保存的数据源配置 (编辑)"""
+        try:
+            if not p.get("id"):
+                return {"ok": False, "msg": "缺少配置 id"}
+            profiles = load_profiles()
+            found = False
+            for i, q in enumerate(profiles):
+                if q.get("id") == p["id"]:
+                    # 保留原密码如果新密码为空
+                    if not p.get("password"):
+                        p["password"] = _dec(q.get("password_enc", ""))
+                    profiles[i] = p
+                    found = True
+                    break
+            if not found:
+                return {"ok": False, "msg": "找不到该配置"}
+            save_profiles(profiles)
+            return self._state()
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
 
     def list_tables(self, side):
         try:

@@ -164,6 +164,22 @@ body {
 .btn-mini:hover { background: #f1f5f9; }
 .btn-disc { color: var(--err); border-color: #fecaca; }
 .btn-refresh { color: #0369a1; border-color: #bae6fd; }
+.btn-edit { color: #6d28d9; border-color: #ddd6fe; }
+
+/* 标签徽章 */
+.tag-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  margin-left: 4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.tag-badge.tag-test { background: #dcfce7; color: #16a34a; }
+.tag-badge.tag-prod { background: #fee2e2; color: #dc2626; }
+.tag-badge.tag-dev  { background: #dbeafe; color: #2563eb; }
 
 /* ---------- 工作区 ---------- */
 .workspace {

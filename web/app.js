@@ -69,6 +69,7 @@ function formProfile(side) {
     id: f.dataset.pid || "",
     type: type,
     name: $(".f-name", f).value.trim(),
+    tag: $(".f-tag", f).value,
     host: $(".f-hostname", f).value.trim() || "127.0.0.1",
     port: parseInt($(".f-portnum", f).value, 10) || (type === "mysql" ? 3306 : 1521),
     user: $(".f-user", f).value.trim(),
@@ -92,6 +93,7 @@ function fillForm(side, p) {
   f.dataset.pid = (p && p.id) || "";
   $(".f-type", f).value = (p && p.type) || "oracle";
   $(".f-name", f).value = (p && p.name) || "";
+  $(".f-tag", f).value = (p && p.tag) || "";
   $(".f-hostname", f).value = (p && p.host) || "";
   $(".f-portnum", f).value = (p && p.port) || ((p && p.type === "mysql") ? 3306 : 1521);
   $(".f-user", f).value = (p && p.user) || "";
@@ -150,7 +152,9 @@ function renderSelect(side) {
     if (p.id === otherPid) continue;   // 另一侧已选, 在本侧隐藏
     const o = document.createElement("option");
     o.value = p.id;
-    o.textContent = `${p.name || p.host} (${({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[p.type] || p.type})`;
+    const typeTxt = ({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[p.type] || p.type;
+    const tagTxt = p.tag === "test" ? " [测试]" : p.tag === "prod" ? " [正式]" : p.tag === "dev" ? " [开发]" : "";
+    o.textContent = `${p.name || p.host} (${typeTxt})${tagTxt}`;
     sel.appendChild(o);
   }
   const onew = document.createElement("option");
@@ -167,6 +171,23 @@ function renderPane(side) {
   $("#dot-" + side).classList.toggle("on", !!info);
   $("#disc-" + side).style.display = info ? "" : "none";
   $("#refresh-" + side).style.display = info ? "" : "none";
+  $("#edit-" + side).style.display = info ? "" : "none";
+  // 侧边标签后追加 tag 徽章
+  const sideTag = $(".side-tag.side-" + side);
+  if (sideTag) {
+    let badge = sideTag.querySelector(".tag-badge");
+    if (badge) badge.remove();
+    if (info && info.tag) {
+      const cls = info.tag === "test" ? "tag-test" : info.tag === "prod" ? "tag-prod" : info.tag === "dev" ? "tag-dev" : "";
+      const txt = info.tag === "test" ? "测试" : info.tag === "prod" ? "正式" : info.tag === "dev" ? "开发" : "";
+      if (cls) {
+        badge = document.createElement("span");
+        badge.className = "tag-badge " + cls;
+        badge.textContent = txt;
+        sideTag.appendChild(badge);
+      }
+    }
+  }
   if (info) {
     form.style.display = "none";
     ws.style.display = "";
@@ -212,15 +233,32 @@ async function doTest(side) {
 async function doConnect(side) {
   const p = formProfile(side);
   const remember = $(".f-save", paneOf(side)).checked;
-  setFormMsg(side, "连接中…", "");
+  const btnConnect = $(".btn-connect", paneOf(side));
+  const isEdit = btnConnect.dataset.editMode === "1";
+  setFormMsg(side, isEdit ? "保存中…" : "连接中…", "");
   setBusy(true);
   try {
-    const r = await api("connect", side, p, remember);
-    if (!r.ok) { setFormMsg(side, r.msg, "err"); return; }
-    applyState(r);
-    toast((side === "left" ? "左侧" : "右侧") + "连接成功");
+    if (isEdit) {
+      // 先保存编辑
+      const ur = await api("update_profile", p);
+      if (!ur.ok) { setFormMsg(side, ur.msg, "err"); return; }
+      // 断开旧连接
+      await api("disconnect", side);
+      // 用新配置重连
+      const r = await api("connect", side, p, false);
+      if (!r.ok) { setFormMsg(side, r.msg, "err"); return; }
+      applyState(r);
+      toast((side === "left" ? "左侧" : "右侧") + "已更新并重连");
+    } else {
+      const r = await api("connect", side, p, remember);
+      if (!r.ok) { setFormMsg(side, r.msg, "err"); return; }
+      applyState(r);
+      toast((side === "left" ? "左侧" : "右侧") + "连接成功");
+    }
   } finally {
     setBusy(false);
+    btnConnect.textContent = "连 接";
+    delete btnConnect.dataset.editMode;
   }
 }
 
@@ -232,6 +270,10 @@ async function doSwitch(side, pid) {
     f.style.display = "";
     $("#ws-" + side).style.display = "none";
     $("#sel-" + side).value = "";
+    // 清理编辑态
+    const btnConnect = $(".btn-connect", paneOf(side));
+    btnConnect.textContent = "连 接";
+    delete btnConnect.dataset.editMode;
     return;
   }
   const p = S.profiles.find(x => x.id === pid);
@@ -251,6 +293,10 @@ async function doDisconnect(side) {
   const r = await api("disconnect", side);
   applyState(r);
   if (S.mode) { S.mode = null; }
+  // 清理编辑态
+  const btnConnect = $(".btn-connect", paneOf(side));
+  btnConnect.textContent = "连 接";
+  delete btnConnect.dataset.editMode;
   renderAll();
 }
 
@@ -417,6 +463,7 @@ function bindPane(side) {
   });
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
+  $("#edit-" + side).addEventListener("click", () => doEdit(side));
   $(".btn-copy", f).addEventListener("click", () => copySQL(side));
   $(".btn-compare-struct", f).addEventListener("click", doCompareStruct);
   $(".btn-compare-data", f).addEventListener("click", doCompareData);
@@ -479,6 +526,26 @@ async function doRefresh(side) {
   } finally {
     setBusy(false);
   }
+}
+
+async function doEdit(side) {
+  // 进入编辑模式: 显示表单, 预填充当前连接的 profile, 但不断开连接
+  const info = S.sides[side];
+  if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
+  const p = S.profiles.find(x => x.id === info.profile_id);
+  if (!p) { toast("找不到该数据源的配置"); return; }
+  fillForm(side, p);
+  $("#form-" + side).style.display = "";
+  $("#ws-" + side).style.display = "none";
+  // 隐藏编辑/断开/刷新按钮, 进入编辑态
+  $("#edit-" + side).style.display = "none";
+  $("#disc-" + side).style.display = "none";
+  $("#refresh-" + side).style.display = "none";
+  // 修改连接按钮文案
+  const btnConnect = $(".btn-connect", paneOf(side));
+  btnConnect.textContent = "保存并重连";
+  btnConnect.dataset.editMode = "1";
+  setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
 }
 
 function setMode(m) {
