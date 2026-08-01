@@ -24,7 +24,13 @@
   <section class="pane" id="pane-left" data-side="left">
     <div class="pane-head">
       <span class="side-tag side-left">左侧库</span>
-      <select class="db-select" id="sel-left"></select>
+      <div class="db-dropdown" id="dd-left">
+        <div class="dd-display" id="dd-display-left">
+          <span class="dd-label" id="dd-label-left">-- 选择已保存的连接 --</span>
+          <span class="dd-arrow">▾</span>
+        </div>
+        <div class="dd-list" id="dd-list-left"></div>
+      </div>
       <span class="dot" id="dot-left"></span>
       <button class="btn-mini btn-disc" id="disc-left" title="断开当前连接" style="display:none">断开</button>
       <button class="btn-mini btn-refresh" id="refresh-left" title="刷新连接状态和表列表" style="display:none">刷新</button>
@@ -47,12 +53,12 @@
       </div>
       <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
       <div class="frow"><label>标签</label>
-        <select class="f-tag">
-          <option value="">(无)</option>
-          <option value="test">测试</option>
-          <option value="prod">正式</option>
-          <option value="dev">开发</option>
-        </select>
+        <div class="f-tag-group">
+          <label class="tag-radio tag-none"><input type="radio" name="tag-left" value="" checked><span>无</span></label>
+          <label class="tag-radio tag-test"><input type="radio" name="tag-left" value="test"><span>测试</span></label>
+          <label class="tag-radio tag-prod"><input type="radio" name="tag-left" value="prod"><span>正式</span></label>
+          <label class="tag-radio tag-dev"><input type="radio" name="tag-left" value="dev"><span>开发</span></label>
+        </div>
       </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
@@ -117,7 +123,13 @@
   <section class="pane" id="pane-right" data-side="right">
     <div class="pane-head">
       <span class="side-tag side-right">右侧库</span>
-      <select class="db-select" id="sel-right"></select>
+      <div class="db-dropdown" id="dd-right">
+        <div class="dd-display" id="dd-display-right">
+          <span class="dd-label" id="dd-label-right">-- 选择已保存的连接 --</span>
+          <span class="dd-arrow">▾</span>
+        </div>
+        <div class="dd-list" id="dd-list-right"></div>
+      </div>
       <span class="dot" id="dot-right"></span>
       <button class="btn-mini btn-disc" id="disc-right" title="断开当前连接" style="display:none">断开</button>
       <button class="btn-mini btn-refresh" id="refresh-right" title="刷新连接状态和表列表" style="display:none">刷新</button>
@@ -139,12 +151,12 @@
       </div>
       <div class="frow"><label>配置名</label><input class="f-name" placeholder="如: 生产库 / 测试库"></div>
       <div class="frow"><label>标签</label>
-        <select class="f-tag">
-          <option value="">(无)</option>
-          <option value="test">测试</option>
-          <option value="prod">正式</option>
-          <option value="dev">开发</option>
-        </select>
+        <div class="f-tag-group">
+          <label class="tag-radio tag-none"><input type="radio" name="tag-right" value="" checked><span>无</span></label>
+          <label class="tag-radio tag-test"><input type="radio" name="tag-right" value="test"><span>测试</span></label>
+          <label class="tag-radio tag-prod"><input type="radio" name="tag-right" value="prod"><span>正式</span></label>
+          <label class="tag-radio tag-dev"><input type="radio" name="tag-right" value="dev"><span>开发</span></label>
+        </div>
       </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>

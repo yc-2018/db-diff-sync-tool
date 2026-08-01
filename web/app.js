@@ -65,11 +65,15 @@ function paneOf(side) { return $("#pane-" + side); }
 function formProfile(side) {
   const f = paneOf(side);
   const type = $(".f-type", f).value;
+  // 标签: 从 radio 组读取
+  let tag = "";
+  const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
+  for (const r of radios) { if (r.checked) { tag = r.value; break; } }
   const p = {
     id: f.dataset.pid || "",
     type: type,
     name: $(".f-name", f).value.trim(),
-    tag: $(".f-tag", f).value,
+    tag: tag,
     host: $(".f-hostname", f).value.trim() || "127.0.0.1",
     port: parseInt($(".f-portnum", f).value, 10) || (type === "mysql" ? 3306 : 1521),
     user: $(".f-user", f).value.trim(),
@@ -93,7 +97,10 @@ function fillForm(side, p) {
   f.dataset.pid = (p && p.id) || "";
   $(".f-type", f).value = (p && p.type) || "oracle";
   $(".f-name", f).value = (p && p.name) || "";
-  $(".f-tag", f).value = (p && p.tag) || "";
+  // 标签 radio
+  const tagVal = (p && p.tag) || "";
+  const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
+  for (const r of radios) { r.checked = (r.value === tagVal); }
   $(".f-hostname", f).value = (p && p.host) || "";
   $(".f-portnum", f).value = (p && p.port) || ((p && p.type === "mysql") ? 3306 : 1521);
   $(".f-user", f).value = (p && p.user) || "";
@@ -135,33 +142,52 @@ function otherTypeLocked(side) {
 }
 
 function renderSelect(side) {
-  const sel = $("#sel-" + side);
+  // 兼容: 渲染自定义下拉列表
+  const dd = $("#dd-" + side);
+  const display = $("#dd-label-" + side);
+  const list = $("#dd-list-" + side);
   const info = S.sides[side];
   const locked = otherTypeLocked(side);
-  // 另一侧已选的 profile_id (避免重复)
   const other = side === "left" ? "right" : "left";
   const otherPid = S.sides[other] ? S.sides[other].profile_id : null;
-  sel.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.textContent = info ? `${info.name} (${info.type_name})` : "-- 选择已保存的连接 --";
-  sel.appendChild(opt0);
+  // 显示文本
+  if (info) {
+    const typeTxt = ({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[info.type] || info.type;
+    display.textContent = `${info.name} (${typeTxt})`;
+  } else {
+    display.textContent = "-- 选择已保存的连接 --";
+  }
+  // 列表项
+  list.innerHTML = "";
   for (const p of S.profiles) {
     if (locked && p.type !== locked) continue;
     if (info && p.id === info.profile_id) continue;
-    if (p.id === otherPid) continue;   // 另一侧已选, 在本侧隐藏
-    const o = document.createElement("option");
-    o.value = p.id;
+    if (p.id === otherPid) continue;
+    const item = document.createElement("div");
+    item.className = "dd-item";
+    item.dataset.pid = p.id;
     const typeTxt = ({ oracle: "Oracle", mysql: "MySQL", sqlite: "SQLite" })[p.type] || p.type;
-    const tagTxt = p.tag === "test" ? " [测试]" : p.tag === "prod" ? " [正式]" : p.tag === "dev" ? " [开发]" : "";
-    o.textContent = `${p.name || p.host} (${typeTxt})${tagTxt}`;
-    sel.appendChild(o);
+    const tagHtml = p.tag === "test" ? '<span class="tag-badge tag-test">测试</span>'
+      : p.tag === "prod" ? '<span class="tag-badge tag-prod">正式</span>'
+      : p.tag === "dev" ? '<span class="tag-badge tag-dev">开发</span>' : "";
+    item.innerHTML = `<span class="dd-name">${esc(p.name || p.host)}</span><span class="dd-type">${typeTxt}</span>${tagHtml}<button class="dd-edit" data-pid="${p.id}">编辑</button>`;
+    item.addEventListener("click", e => {
+      // 点编辑按钮不触发切换
+      if (e.target.classList.contains("dd-edit")) return;
+      dd.classList.remove("open");
+      doSwitch(side, p.id);
+    });
+    list.appendChild(item);
   }
-  const onew = document.createElement("option");
-  onew.value = "__new__";
+  // 新建选项
+  const onew = document.createElement("div");
+  onew.className = "dd-item dd-new";
   onew.textContent = "＋ 新建数据库链接";
-  sel.appendChild(onew);
-  sel.value = "";
+  onew.addEventListener("click", () => {
+    dd.classList.remove("open");
+    doSwitch(side, "__new__");
+  });
+  list.appendChild(onew);
 }
 
 function renderPane(side) {
@@ -264,12 +290,10 @@ async function doConnect(side) {
 
 async function doSwitch(side, pid) {
   if (pid === "__new__") {
-    // 新建连接 -> 回到连接信息页面, 并重置下拉框 value (这样用户再选其他项能触发 change)
-    const f = $("#form-" + side);
+    // 新建连接 -> 回到连接信息页面
     fillForm(side, null);
-    f.style.display = "";
+    $("#form-" + side).style.display = "";
     $("#ws-" + side).style.display = "none";
-    $("#sel-" + side).value = "";
     // 清理编辑态
     const btnConnect = $(".btn-connect", paneOf(side));
     btnConnect.textContent = "连 接";
@@ -464,6 +488,39 @@ function bindPane(side) {
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $("#edit-" + side).addEventListener("click", () => doEdit(side));
+  // 自定义下拉
+  const dd = $("#dd-" + side);
+  const ddDisplay = $("#dd-display-" + side);
+  ddDisplay.addEventListener("click", () => {
+    // 关闭其他侧的下拉
+    for (const s of SIDES) {
+      if (s !== side) $("#dd-" + s).classList.remove("open");
+    }
+    dd.classList.toggle("open");
+  });
+  // 下拉里的编辑按钮
+  $("#dd-list-" + side).addEventListener("click", e => {
+    if (e.target.classList.contains("dd-edit")) {
+      e.stopPropagation();
+      dd.classList.remove("open");
+      const pid = e.target.dataset.pid;
+      const p = S.profiles.find(x => x.id === pid);
+      if (!p) return;
+      // 如果该数据源已连接在当前侧, 先断开再编辑; 如果连在另一侧, 不动连接, 仅在当前侧填表单
+      // 实际上: 点编辑就是想改配置, 不影响连接。直接回填表单 + 进入编辑态
+      fillForm(side, p);
+      $("#form-" + side).style.display = "";
+      $("#ws-" + side).style.display = "none";
+      const btnConnect = $(".btn-connect", paneOf(side));
+      btnConnect.textContent = "保存并重连";
+      btnConnect.dataset.editMode = "1";
+      setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
+    }
+  });
+  // 点其他地方关闭下拉
+  document.addEventListener("click", e => {
+    if (!dd.contains(e.target)) dd.classList.remove("open");
+  });
   $(".btn-copy", f).addEventListener("click", () => copySQL(side));
   $(".btn-compare-struct", f).addEventListener("click", doCompareStruct);
   $(".btn-compare-data", f).addEventListener("click", doCompareData);
@@ -550,19 +607,19 @@ async function doEdit(side) {
 
 function setMode(m) {
   if (!(S.sides.left && S.sides.right)) return;
+  // 单选: 点击哪个就选哪个, 不再 toggle
+  if (S.mode === m) return;
   // 切换模式时清空两侧的比对结果和 SQL 输出
-  if (S.mode !== m) {
-    for (const side of SIDES) {
-      const ws = $("#ws-" + side);
-      const ra = $(".result-area", ws);
-      const so = $(".sql-output", ws);
-      if (ra) ra.innerHTML = "";
-      if (so) so.value = "";
-    }
+  for (const side of SIDES) {
+    const ws = $("#ws-" + side);
+    const ra = $(".result-area", ws);
+    const so = $(".sql-output", ws);
+    if (ra) ra.innerHTML = "";
+    if (so) so.value = "";
   }
-  S.mode = S.mode === m ? null : m;
+  S.mode = m;
   renderModes();
-  if (m === "data" && S.mode === "data") loadTableList();
+  if (m === "data") loadTableList();
 }
 
 async function init() {
@@ -571,6 +628,27 @@ async function init() {
   $("#btnModeData").addEventListener("click", () => setMode("data"));
   const st = await api("get_state");
   applyState(st);
+  // 自动恢复上次连接 (两侧并行)
+  const toRestore = [];
+  if (st.last_left && !st.left) toRestore.push("left");
+  if (st.last_right && !st.right) toRestore.push("right");
+  if (toRestore.length) {
+    setBusy(true);
+    try {
+      // 串行恢复, 避免同类型检查竞态
+      for (const side of toRestore) {
+        const r = await api("restore_connect", side);
+        if (r.ok) applyState(r);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+  // 默认选择「同步数据表」模式 (如果两侧都已连)
+  if (S.sides.left && S.sides.right && !S.mode) {
+    S.mode = "struct";
+    renderModes();
+  }
 }
 
 /* ---------------- URL 解析粘贴 ---------------- */

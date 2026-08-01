@@ -21,6 +21,7 @@ import dbcore
 BASE_DIR = Path(__file__).resolve().parent
 STORE_DIR = Path.home() / ".dbsync_tool"
 STORE_FILE = STORE_DIR / "connections.json"
+SESSION_FILE = STORE_DIR / "session.json"
 
 
 # ------------------------------------------------------------ 配置持久化
@@ -59,6 +60,18 @@ def save_profiles(profiles):
     STORE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def load_session():
+    try:
+        return json.loads(SESSION_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_session(sess):
+    STORE_DIR.mkdir(parents=True, exist_ok=True)
+    SESSION_FILE.write_text(json.dumps(sess, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def upsert_profile(p):
     profiles = load_profiles()
     if not p.get("id"):
@@ -91,10 +104,13 @@ class Api:
                 "tag": p.get("tag", "")}
 
     def _state(self):
+        sess = load_session()
         return {"ok": True,
                 "profiles": load_profiles(),
                 "left": self._side_info("left"),
-                "right": self._side_info("right")}
+                "right": self._side_info("right"),
+                "last_left": sess.get("last_left", ""),
+                "last_right": sess.get("last_right", "")}
 
     def _require(self, side):
         s = self._sides[side]
@@ -105,6 +121,46 @@ class Api:
     # ---- 连接管理 ----
     def get_state(self):
         return self._state()
+
+    def restore_connect(self, side):
+        """启动时自动恢复上次连接 (按 session.json 中记录的 profile id)"""
+        try:
+            sess = load_session()
+            key = "last_left" if side == "left" else "last_right"
+            pid = sess.get(key, "")
+            if not pid:
+                return self._state()
+            profiles = load_profiles()
+            p = None
+            for q in profiles:
+                if q.get("id") == pid:
+                    p = dict(q)
+                    p["password"] = _dec(p.pop("password_enc", ""))
+                    break
+            if not p:
+                # profile 已被删除, 清除 session 记录
+                del sess[key]
+                save_session(sess)
+                return self._state()
+            # 类型检查
+            other = "right" if side == "left" else "left"
+            if self._sides[other] and self._sides[other]["profile"].get("type") != p.get("type"):
+                return self._state()  # 类型不匹配, 不恢复
+            try:
+                db = dbcore.connect(p)
+            except Exception:
+                # 恢复失败 (如网络不通), 不报错, 仅清除 session
+                del sess[key]
+                save_session(sess)
+                return self._state()
+            with self._mu:
+                old = self._sides[side]
+                if old:
+                    old["db"].close()
+                self._sides[side] = {"profile": p, "db": db}
+            return self._state()
+        except Exception:
+            return self._state()
 
     def parse_url(self, url):
         """解析 JDBC URL / DSN -> profile dict, 供前端粘贴 URL 自动填充"""
@@ -140,6 +196,10 @@ class Api:
             if remember:
                 p = upsert_profile(dict(p))
             self._sides[side] = {"profile": p, "db": db}
+        # 记住本次连接
+        sess = load_session()
+        sess["last_left" if side == "left" else "last_right"] = p.get("id", "")
+        save_session(sess)
         return self._state()
 
     def disconnect(self, side):
@@ -148,6 +208,11 @@ class Api:
             if old:
                 old["db"].close()
             self._sides[side] = None
+        sess = load_session()
+        key = "last_left" if side == "left" else "last_right"
+        if key in sess:
+            del sess[key]
+            save_session(sess)
         return self._state()
 
     def delete_profile(self, pid):
