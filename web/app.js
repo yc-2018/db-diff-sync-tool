@@ -285,22 +285,15 @@ async function doConnect(side) {
     const btnCancel = $(".btn-cancel-edit", paneOf(side));
     if (btnCancel) btnCancel.style.display = "none";
     delete paneOf(side)._editBackup;
+    $("#form-" + side).classList.remove("modal-mode");
   }
 }
 
 async function doSwitch(side, pid) {
   if (pid === "__new__") {
-    // 新建连接: 先断开当前侧连接, 清空表单
-    if (S.sides[side]) {
-      setBusy(true);
-      try {
-        const r = await api("disconnect", side);
-        if (r.ok) applyState(r);
-      } finally { setBusy(false); }
-    }
+    // 新建连接: 弹模态框, 不动当前连接
     fillForm(side, null);
-    $("#form-" + side).style.display = "";
-    $("#ws-" + side).style.display = "none";
+    $("#form-" + side).classList.add("modal-mode");
     // 清理编辑态
     const btnConnect = $(".btn-connect", paneOf(side));
     btnConnect.textContent = "连 接";
@@ -598,28 +591,15 @@ async function doRefresh(side) {
   }
 }
 
-async async function doEdit(side) {
-  // 编辑模式: 先断开当前侧, 再回填表单, 进入编辑态
+async function doEdit(side) {
+  // 编辑模式: 弹模态框回填表单, 不动当前连接
   const info = S.sides[side];
   if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
   const p = S.profiles.find(x => x.id === info.profile_id);
   if (!p) { toast("找不到该数据源的配置"); return; }
-  // 记录编辑前状态, 供取消时重连
   paneOf(side)._editBackup = { hadConn: true, profileId: info.profile_id };
-  // 断开当前侧
-  setBusy(true);
-  try {
-    const r = await api("disconnect", side);
-    if (r.ok) applyState(r);
-  } finally { setBusy(false); }
-  // 回填表单
   fillForm(side, p);
-  $("#form-" + side).style.display = "";
-  $("#ws-" + side).style.display = "none";
-  // 隐藏编辑/断开/刷新按钮
-  $("#edit-" + side).style.display = "none";
-  $("#disc-" + side).style.display = "none";
-  $("#refresh-" + side).style.display = "none";
+  $("#form-" + side).classList.add("modal-mode");
   // 显示取消按钮
   const btnCancel = $(".btn-cancel-edit", paneOf(side));
   if (btnCancel) btnCancel.style.display = "";
@@ -630,10 +610,11 @@ async async function doEdit(side) {
   setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
 }
 
-async function doCancelEdit(side) {
+function doCancelEdit(side) {
   const f = paneOf(side);
-  const backup = f._editBackup;
   delete f._editBackup;
+  // 关闭模态框
+  $("#form-" + side).classList.remove("modal-mode");
   // 清理编辑态
   const btnConnect = $(".btn-connect", f);
   btnConnect.textContent = "连 接";
@@ -641,20 +622,6 @@ async function doCancelEdit(side) {
   const btnCancel = $(".btn-cancel-edit", f);
   if (btnCancel) btnCancel.style.display = "none";
   setFormMsg(side, "", "");
-  if (backup && backup.hadConn && backup.profileId) {
-    // 之前已连接: 重新连回去
-    const p = S.profiles.find(x => x.id === backup.profileId);
-    if (!p) { fillForm(side, null); return; }
-    setBusy(true);
-    try {
-      const r = await api("connect", side, p, false);
-      if (r.ok) { applyState(r); toast((side === "left" ? "左侧" : "右侧") + "已恢复连接"); }
-      else { fillForm(side, null); }
-    } finally { setBusy(false); }
-  } else {
-    // 之前未连接: 回到空表单
-    fillForm(side, null);
-  }
 }
 
 function setMode(m) {
