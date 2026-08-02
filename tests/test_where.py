@@ -2,6 +2,7 @@
 """验证 fetch_rows 的 where 参数"""
 import os, sqlite3, sys, tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import app
 import dbcore
 
 tmp = tempfile.mkdtemp()
@@ -46,5 +47,30 @@ try:
     raise SystemExit("count_rows should reject semicolon")
 except dbcore.DBError as e:
     print("[OK] count blocked: %s" % e)
+
+
+def make_side(has_filter_column):
+    side_conn = sqlite3.connect(":memory:")
+    column_sql = ", status INTEGER" if has_filter_column else ""
+    side_conn.execute("CREATE TABLE T1 (a INTEGER PRIMARY KEY%s)" % column_sql)
+    side_conn.execute("INSERT INTO T1 (a) VALUES (1)")
+    side_conn.commit()
+    return dbcore.SQLiteDB(side_conn)
+
+
+# WHERE 字段只存在一侧时，错误必须明确标出失败侧。
+for missing_side in ("left", "right"):
+    left = make_side(missing_side != "left")
+    right = make_side(missing_side != "right")
+    api = app.Api()
+    api._sides = {
+        "left": {"profile": {"type": "sqlite"}, "db": left},
+        "right": {"profile": {"type": "sqlite"}, "db": right},
+    }
+    result = api.preview_data_compare("T1", "status = 1")
+    expected = "左侧数据库 WHERE 条件执行失败" if missing_side == "left" else "右侧数据库 WHERE 条件执行失败"
+    assert not result["ok"] and expected in result["msg"], result
+    left.close()
+    right.close()
 
 print("===== where 参数测试通过 =====")

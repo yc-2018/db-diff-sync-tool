@@ -376,8 +376,16 @@ class Api:
     def preview_data_compare(self, table, where=""):
         try:
             L, R, _dialect, t, w, lm, rm = self._data_compare_context(table, where)
-            left_count = L["db"].count_rows(lm, where=w)
-            right_count = R["db"].count_rows(rm, where=w)
+            try:
+                left_count = L["db"].count_rows(lm, where=w)
+            except Exception as e:
+                action = "WHERE 条件执行失败" if w else "数据行数统计失败"
+                raise dbcore.DBError("左侧数据库 %s: %s" % (action, e)) from e
+            try:
+                right_count = R["db"].count_rows(rm, where=w)
+            except Exception as e:
+                action = "WHERE 条件执行失败" if w else "数据行数统计失败"
+                raise dbcore.DBError("右侧数据库 %s: %s" % (action, e)) from e
             return {
                 "ok": True,
                 "table": t,
@@ -392,8 +400,14 @@ class Api:
     def compare_data(self, table, where=""):
         try:
             L, R, dialect, t, w, lm, rm = self._data_compare_context(table, where)
-            lrows = L["db"].fetch_rows(lm, where=w)
-            rrows = R["db"].fetch_rows(rm, where=w)
+            try:
+                lrows = L["db"].fetch_rows(lm, where=w)
+            except Exception as e:
+                raise dbcore.DBError("左侧数据库读取数据失败: %s" % e) from e
+            try:
+                rrows = R["db"].fetch_rows(rm, where=w)
+            except Exception as e:
+                raise dbcore.DBError("右侧数据库读取数据失败: %s" % e) from e
             diff = dbcore.diff_data(lm, lrows, rm, rrows, dialect)
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             l_head = ["-- ========================================================",

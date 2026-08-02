@@ -198,11 +198,12 @@ function renderModes() {
   $("#topHint").textContent = both
     ? (S.mode === "struct" ? "模式: 同步数据表(结构比对)" : S.mode === "data" ? "模式: 同步数据(数据比对)" : "两侧已连接, 请选择同步模式")
     : "请先连接两侧数据库";
-  for (const side of SIDES) {
-    const ws = $("#ws-" + side);
-    $(".tool-struct", ws).style.display = S.mode === "struct" ? "" : "none";
-    $(".tool-data", ws).style.display = S.mode === "data" ? "" : "none";
-  }
+  $("#shared-struct-picker").style.display = S.mode === "struct" ? "" : "none";
+  $("#shared-data-picker").style.display = S.mode === "data" ? "" : "none";
+  $("#shared-where").style.display = S.mode === "data" ? "" : "none";
+  const submit = $("#btnCompareShared");
+  submit.disabled = !both || !S.mode;
+  submit.textContent = S.mode === "data" ? "开始比对数据" : "开始比对结构";
 }
 
 function renderAll() {
@@ -401,7 +402,9 @@ function closeTablePickers(except) {
 }
 
 function syncTableInputs(selector, value) {
-  for (const side of SIDES) $(selector, paneOf(side)).value = value;
+  const picker = selector === ".table-input" ? "#shared-struct-picker" : "#shared-data-picker";
+  const field = $(selector, $(picker));
+  if (field) field.value = value;
 }
 
 function renderTableMenu(picker) {
@@ -479,9 +482,8 @@ function openTablePicker(picker, focusSearch) {
   }
 }
 
-function bindTablePicker(side, mode) {
-  const pane = paneOf(side);
-  const picker = $(`.table-picker[data-picker="${mode}"]`, pane);
+function bindTablePicker(mode) {
+  const picker = $(mode === "struct" ? "#shared-struct-picker" : "#shared-data-picker");
   const field = $(mode === "struct" ? ".table-input" : ".data-table-input", picker);
   const toggle = $(".table-picker-toggle", picker);
   const menu = $(".table-menu", picker);
@@ -527,7 +529,7 @@ function bindTablePicker(side, mode) {
 }
 
 async function doCompareStruct() {
-  const text = $(".table-input", paneOf("left")).value || $(".table-input", paneOf("right")).value;
+  const text = $(".table-input", $("#shared-struct-picker")).value;
   const tables = parseTables(text);
   if (!tables.length) { toast("请输入至少一个表名"); return; }
   setBusy(true);
@@ -567,10 +569,9 @@ function renderStructResults(r) {
 /* ---------------- 同步数据 ---------------- */
 
 async function doCompareData() {
-  const t = ($(".data-table-input", paneOf("left")).value || $(".data-table-input", paneOf("right")).value).trim();
+  const t = $(".data-table-input", $("#shared-data-picker")).value.trim();
   if (!t) { toast("请输入表名"); return; }
-  // where 条件 (两侧同步, 取任一侧的值即可)
-  let where = ($(".data-where-input", paneOf("left")).value || $(".data-where-input", paneOf("right")).value || "").trim();
+  let where = $(".data-where-input", $("#shared-where")).value.trim();
   if (!where) {
     where = "";
   } else {
@@ -592,7 +593,7 @@ async function doCompareData() {
         "点击“确定”仍然比对，点击“取消”返回填写 WHERE。"
       );
       if (!proceed) {
-        $(".data-where-input", paneOf("left")).focus();
+        $(".data-where-input", $("#shared-where")).focus();
         return;
       }
       setBusy(true);
@@ -728,15 +729,6 @@ function bindPane(side) {
     if (!dd.contains(e.target)) dd.classList.remove("open");
   });
   $(".btn-copy", f).addEventListener("click", () => copySQL(side));
-  $(".btn-compare-struct", f).addEventListener("click", doCompareStruct);
-  $(".btn-compare-data", f).addEventListener("click", doCompareData);
-  bindTablePicker(side, "struct");
-  bindTablePicker(side, "data");
-  // 两侧 where 输入保持同步
-  $(".data-where-input", f).addEventListener("input", e => {
-    const other = side === "left" ? "right" : "left";
-    $(".data-where-input", paneOf(other)).value = e.target.value;
-  });
   // SQL 输出区拉杆拖拽 (两侧同步高度)
   bindSqlResizer(side);
   onTypeChange(side);
@@ -826,6 +818,8 @@ function setMode(m) {
 
 async function init() {
   for (const side of SIDES) bindPane(side);
+  bindTablePicker("struct");
+  bindTablePicker("data");
   document.addEventListener("click", e => {
     if (!e.target.closest(".table-picker")) closeTablePickers();
   });
@@ -834,6 +828,7 @@ async function init() {
   });
   $("#btnModeStruct").addEventListener("click", () => setMode("struct"));
   $("#btnModeData").addEventListener("click", () => setMode("data"));
+  $("#btnCompareShared").addEventListener("click", () => S.mode === "data" ? doCompareData() : doCompareStruct());
   const st = await api("get_state");
   applyState(st);
   // 自动恢复上次连接 (两侧并行)
