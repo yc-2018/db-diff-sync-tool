@@ -73,6 +73,14 @@
    - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制；单方向超过 5000 条时会截断并要求使用 WHERE 分批处理。
 
 ## 界面展示
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/481712/8/14349/95734/6a6f9272F1697683f/06d749d44e95ed4f.webp)
+下面是旧界面的截图
+___
+![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/497861/36/1826/50998/6a6f8fa7Fbf6104ba/06d7518352cbca90.webp)
+
+下面是旧界面的截图
+___
+
 ![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/494837/36/3503/111584/6a6dbcf2F421c1202/06d77a64fd94e218.webp)
 ![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/494616/17/3717/254846/6a6dbefeFd1c2a502/06d77a64fdfd9538.webp)
 ![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/483573/35/12354/283224/6a6dbfbeFf76f88e4/06d77a64fd7b3ab1.webp)

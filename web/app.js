@@ -195,9 +195,6 @@ function renderModes() {
   $("#btnModeData").disabled = !both;
   $("#btnModeStruct").classList.toggle("active", S.mode === "struct");
   $("#btnModeData").classList.toggle("active", S.mode === "data");
-  $("#topHint").textContent = both
-    ? (S.mode === "struct" ? "模式: 同步数据表(结构比对)" : S.mode === "data" ? "模式: 同步数据(数据比对)" : "两侧已连接, 请选择同步模式")
-    : "请先连接两侧数据库";
   $("#shared-struct-picker").style.display = S.mode === "struct" ? "" : "none";
   $("#shared-data-picker").style.display = S.mode === "data" ? "" : "none";
   $("#shared-where").style.display = S.mode === "data" ? "" : "none";
