@@ -30,11 +30,21 @@ assert len(rows2) == 2, "where a>1: %d" % len(rows2)
 rows3 = db.fetch_rows(m, where="a = 1")
 assert len(rows3) == 1, "where a=1: %d" % len(rows3)
 
+# count_rows 与正式读取使用相同的 where 规则
+assert db.count_rows(m) == 3
+assert db.count_rows(m, where="a > 1") == 2
+
 # 注入拦截
 try:
     db.fetch_rows(m, where="1=1; DROP TABLE T1")
     raise SystemExit("should reject semicolon")
 except dbcore.DBError as e:
     print("[OK] blocked: %s" % e)
+
+try:
+    db.count_rows(m, where="1=1; DROP TABLE T1")
+    raise SystemExit("count_rows should reject semicolon")
+except dbcore.DBError as e:
+    print("[OK] count blocked: %s" % e)
 
 print("===== where 参数测试通过 =====")

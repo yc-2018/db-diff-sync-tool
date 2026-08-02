@@ -19,6 +19,7 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
+APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
 STORE_FILE = STORE_DIR / "connections.json"
 SESSION_FILE = STORE_DIR / "session.json"
@@ -78,7 +79,7 @@ def upsert_profile(p):
     if name:
         for q in profiles:
             if q.get("id") != p.get("id") and (q.get("name") or "").strip() == name:
-                raise DBError("配置名「%s」已存在, 请使用其他名称" % name)
+                raise dbcore.DBError("配置名「%s」已存在, 请使用其他名称" % name)
     if not p.get("id"):
         p["id"] = uuid.uuid4().hex[:12]
     for i, q in enumerate(profiles):
@@ -178,6 +179,22 @@ class Api:
             db = dbcore.connect(p)
             db.close()
             return {"ok": True, "msg": "连接成功"}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def save_profile(self, p):
+        """仅保存连接配置，不访问数据库；编辑时密码留空则保留原密码。"""
+        try:
+            p = dict(p or {})
+            if p.get("id") and not p.get("password"):
+                old = next((q for q in load_profiles() if q.get("id") == p["id"]), None)
+                if old:
+                    p["password"] = old.get("password", "")
+            saved = upsert_profile(p)
+            state = self._state()
+            state["profile"] = saved
+            state["msg"] = "配置已保存"
+            return state
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
@@ -330,32 +347,51 @@ class Api:
             return {"ok": False, "msg": str(e)}
 
     # ---- 数据比对 ----
+    def _data_compare_context(self, table, where):
+        L = self._require("left")
+        R = self._require("right")
+        dialect = L["db"].dialect
+        t = (table or "").strip()
+        if not t:
+            raise dbcore.DBError("请输入表名")
+        if dialect == "oracle":
+            t = t.upper()
+        w = (where or "").strip()
+        if w:
+            lw = w.lower()
+            if lw.startswith("where "):
+                w = w[6:].strip()
+            elif lw.startswith("where"):
+                w = w[5:].strip()
+        lm = L["db"].table_meta(t)
+        rm = R["db"].table_meta(t)
+        if lm is None and rm is None:
+            raise dbcore.DBError("两侧数据库都不存在表 %s" % t)
+        if lm is None:
+            raise dbcore.DBError("左侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
+        if rm is None:
+            raise dbcore.DBError("右侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
+        return L, R, dialect, t, w, lm, rm
+
+    def preview_data_compare(self, table, where=""):
+        try:
+            L, R, _dialect, t, w, lm, rm = self._data_compare_context(table, where)
+            left_count = L["db"].count_rows(lm, where=w)
+            right_count = R["db"].count_rows(rm, where=w)
+            return {
+                "ok": True,
+                "table": t,
+                "left_count": left_count,
+                "right_count": right_count,
+                "warning_threshold": dbcore.ROW_WARNING_THRESHOLD,
+                "requires_confirmation": max(left_count, right_count) > dbcore.ROW_WARNING_THRESHOLD,
+            }
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
     def compare_data(self, table, where=""):
         try:
-            L = self._require("left")
-            R = self._require("right")
-            dialect = L["db"].dialect
-            t = (table or "").strip()
-            if not t:
-                raise dbcore.DBError("请输入表名")
-            if dialect == "oracle":
-                t = t.upper()
-            # 清洗 where: 去除前缀
-            w = (where or "").strip()
-            if w:
-                lw = w.lower()
-                if lw.startswith("where "):
-                    w = w[6:].strip()
-                elif lw.startswith("where"):
-                    w = w[5:].strip()
-            lm = L["db"].table_meta(t)
-            rm = R["db"].table_meta(t)
-            if lm is None and rm is None:
-                raise dbcore.DBError("两侧数据库都不存在表 %s" % t)
-            if lm is None:
-                raise dbcore.DBError("左侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
-            if rm is None:
-                raise dbcore.DBError("右侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
+            L, R, dialect, t, w, lm, rm = self._data_compare_context(table, where)
             lrows = L["db"].fetch_rows(lm, where=w)
             rrows = R["db"].fetch_rows(rm, where=w)
             diff = dbcore.diff_data(lm, lrows, rm, rrows, dialect)
@@ -405,7 +441,7 @@ def main():
             except Exception:
                 pass
         threading.Thread(target=closer, daemon=True).start()
-    webview.start(debug=False)
+    webview.start(debug=False, icon=str(APP_ICON))
 
 
 if __name__ == "__main__":

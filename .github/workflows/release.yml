@@ -41,6 +41,9 @@ jobs:
         run: |
           python tests/selftest.py
           python tests/test_where.py
+          python tests/test_limits.py
+          python tests/test_urls.py
+          python tests/test_profiles.py
 
       - name: Build Windows application
         shell: pwsh
@@ -50,18 +53,19 @@ jobs:
             "--clean"
             "--windowed"
             "--name", "数据库同步比对工具"
+            "--icon", "web\app-icon.ico"
             "--collect-all", "oracledb"
             "--add-data", "web;web"
-            "app.py"
           )
 
           $oracleClient = ".oracle_client\instantclient_21_22"
           if (Test-Path "$oracleClient\oci.dll") {
-            $arguments = $arguments[0..8] + @(
+            $arguments += @(
               "--add-data", "$oracleClient;.oracle_client\instantclient_21_22"
-            ) + $arguments[9]
+            )
           }
 
+          $arguments += "app.py"
           pyinstaller @arguments
 
       - name: Create release archive

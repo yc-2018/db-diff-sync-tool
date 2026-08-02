@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 from dataclasses import dataclass, field
+from urllib.parse import unquote, urlsplit
 
 # Oracle Instant Client 本地路径 (thick mode) - Oracle 11g 等旧版需要。
 # 打包后 PyInstaller 会把 data 文件放到 sys._MEIPASS / _internal 下，
@@ -68,16 +69,40 @@ def parse_connect_url(url):
     s = (url or "").strip()
     if not s:
         return {}
-    # JDBC: oracle:thin:@//host:port/service (服务名)
-    m = re.match(r'jdbc:oracle:thin:@//([^:/]+):(\d+)/(.+?)\s*$', s, re.I)
-    if m:
-        return {"type": "oracle", "host": m.group(1), "port": int(m.group(2)),
-                "ora_mode": "service", "service_name": m.group(3), "sid": ""}
-    # JDBC: oracle:thin:@host:port:SID
-    m = re.match(r'jdbc:oracle:thin:@([^:/]+):(\d+):(.+?)\s*$', s, re.I)
-    if m:
-        return {"type": "oracle", "host": m.group(1), "port": int(m.group(2)),
-                "ora_mode": "sid", "sid": m.group(3), "service_name": ""}
+
+    def oracle_profile(match, mode, extra=None):
+        profile = {"type": "oracle", "host": match.group(1), "port": int(match.group(2)),
+                   "ora_mode": mode, "sid": "", "service_name": ""}
+        profile["sid" if mode == "sid" else "service_name"] = match.group(3)
+        if extra:
+            profile.update(extra)
+        return profile
+
+    # JDBC Oracle 同时支持 thin:@host... 和 thin:user/password@host...。
+    jdbc_oracle = re.match(r'jdbc:oracle:thin:(.+)$', s, re.I)
+    if jdbc_oracle:
+        target = jdbc_oracle.group(1)
+        credentials = {}
+        if target.startswith("@"):
+            target = target[1:]
+        elif "@" in target:
+            auth, target = target.rsplit("@", 1)
+            user, sep, password = auth.partition("/")
+            if not sep or not user:
+                return {}
+            credentials = {"user": unquote(user), "password": unquote(password)}
+        # //host:port/service (服务名)
+        m = re.match(r'//([^:/]+):(\d+)/(.+?)\s*$', target)
+        if m:
+            return oracle_profile(m, "service", credentials)
+        # host:port:SID
+        m = re.match(r'([^:/]+):(\d+):(.+?)\s*$', target)
+        if m:
+            return oracle_profile(m, "sid", credentials)
+        # host:port/service
+        m = re.match(r'([^:/]+):(\d+)/(.+?)\s*$', target)
+        if m:
+            return oracle_profile(m, "service", credentials)
     # //host:port/service
     m = re.match(r'//([^:/]+):(\d+)/(.+?)\s*$', s)
     if m:
@@ -93,11 +118,17 @@ def parse_connect_url(url):
     if m:
         return {"type": "oracle", "host": m.group(1), "port": int(m.group(2)),
                 "ora_mode": "service", "service_name": m.group(3), "sid": ""}
-    # mysql://user:pass@host:port/db  或  mysql://host:port/db
-    m = re.match(r'mysql://(?:([^:@]+)(?::([^@]*))?@)?([^:/]+):(\d+)/(.+?)\s*$', s, re.I)
-    if m:
-        return {"type": "mysql", "host": m.group(3), "port": int(m.group(4)),
-                "database": m.group(5), "user": m.group(1) or "", "password": m.group(2) or ""}
+    # mysql://... 和 jdbc:mysql://...；JDBC 查询参数不属于数据库名。
+    mysql_url = s[5:] if s.lower().startswith("jdbc:mysql://") else s
+    parts = urlsplit(mysql_url)
+    if parts.scheme.lower() == "mysql" and parts.hostname and parts.path not in ("", "/"):
+        try:
+            port = parts.port or 3306
+        except ValueError:
+            return {}
+        return {"type": "mysql", "host": parts.hostname, "port": port,
+                "database": unquote(parts.path.lstrip("/")),
+                "user": unquote(parts.username or ""), "password": unquote(parts.password or "")}
     # sqlite:///path/to/db
     m = re.match(r'sqlite:///(.+)$', s, re.I)
     if m:
@@ -107,7 +138,9 @@ def parse_connect_url(url):
 
 MAX_ROWS = 200000   # 数据比对单表最大行数(超出报错, 防止内存爆掉)
 MAX_SQL = 5000      # 单方向最多输出的 SQL 条数(超出截断并注释说明)
-MAX_DETAIL = 200    # 界面展示的差异明细条数
+ROW_WARNING_THRESHOLD = 500       # 超过该行数时, 比对前要求用户确认
+DETAIL_RENDER_THRESHOLD = 2000    # 差异不超过该数量时展示全部明细
+MAX_DETAIL = 200                  # 大量差异时界面展示的明细条数
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_$#]*$")
 
@@ -216,12 +249,7 @@ class BaseDB:
     def fetch_rows(self, meta: TableMeta, where=""):
         cols = [c.name for c in meta.cols]
         sql = "SELECT %s FROM %s" % (", ".join(self.q(c) for c in cols), self.q(meta.name))
-        w = (where or "").strip()
-        if w:
-            # 简单防注入 (用户主动输入, 本工具仅供比对)
-            if ';' in w or '--' in w:
-                raise DBError("where 条件不允许包含分号或注释")
-            sql += " WHERE " + w
+        sql += self._where_sql(where)
         pk = meta.pk_cols
         if pk:
             sql += " ORDER BY " + ", ".join(self.q(c) for c in pk)
@@ -243,6 +271,28 @@ class BaseDB:
             except Exception:
                 pass
         return out
+
+    def count_rows(self, meta: TableMeta, where=""):
+        """返回相同筛选范围的行数, 用于正式读取前的容量提示。"""
+        sql = "SELECT COUNT(*) FROM %s%s" % (self.q(meta.name), self._where_sql(where))
+        with self.lock:
+            cur = self.conn.cursor()
+            try:
+                cur.execute(sql)
+                row = cur.fetchone()
+                return int(row[0] or 0)
+            finally:
+                cur.close()
+
+    @staticmethod
+    def _where_sql(where):
+        w = (where or "").strip()
+        if not w:
+            return ""
+        # 简单防注入 (用户主动输入, 本工具仅供比对)
+        if ';' in w or '--' in w:
+            raise DBError("where 条件不允许包含分号或注释")
+        return " WHERE " + w
 
 
 # ---------------------------------------------------------------- Oracle
@@ -935,15 +985,17 @@ def diff_data(lmeta: TableMeta, lrows, rmeta: TableMeta, rrows, dialect: str):
             return sqls[:MAX_SQL] + ["-- ……差异过多, 仅输出前 %d 条, 共 %d 条" % (MAX_SQL, len(sqls))]
         return sqls
 
-    # 差异明细(界面展示)
+    # 差异不超过 2000 条时完整展示; 更大时只展示前 200 条。
+    total_diff = len(only_left) + len(only_right) + len(changed)
+    detail_limit = total_diff if total_diff <= DETAIL_RENDER_THRESHOLD else MAX_DETAIL
     details = []
-    for k in only_left[:MAX_DETAIL]:
+    for k in only_left[:detail_limit]:
         details.append({"kind": "only_left", "key": _fmt_key(key_cols, k),
                         "left": _fmt_row(order, lmap[k], li), "right": None, "changed": []})
-    for k in only_right[:MAX_DETAIL]:
+    for k in only_right[:detail_limit]:
         details.append({"kind": "only_right", "key": _fmt_key(key_cols, k),
                         "left": None, "right": _fmt_row(order, rmap[k], ri), "changed": []})
-    rest = MAX_DETAIL - len(details)
+    rest = detail_limit - len(details)
     for k in changed[:max(rest, 0)]:
         ch = [c for c in order
               if norm_val(lmap[k][li[c.upper()]]) != norm_val(rmap[k][ri[c.upper()]])]
@@ -962,8 +1014,9 @@ def diff_data(lmeta: TableMeta, lrows, rmeta: TableMeta, rrows, dialect: str):
         "updated": len(changed),
         "left_sql": "\n".join(capped(l_sql)),
         "right_sql": "\n".join(capped(r_sql)),
+        "sql_capped": len(l_sql) > MAX_SQL or len(r_sql) > MAX_SQL,
         "details": details,
-        "detail_capped": (len(only_left) + len(only_right) + len(changed)) > MAX_DETAIL,
+        "detail_capped": total_diff > DETAIL_RENDER_THRESHOLD,
     }
 
 

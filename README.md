@@ -53,18 +53,23 @@
 
 ## 使用流程
 
-1. **连接两侧数据库**：左右两栏各填一份连接信息，勾选「记住此连接」后会保存在本机
+1. **连接两侧数据库**：左右两栏各填一份连接信息。「仅保存」不访问数据库，适合数据库暂时不可用时先保存配置；
+   「保存并连接」会先保存，再尝试连接，失败时保留表单内容和原有连接。配置保存在
    `%USERPROFILE%\.dbsync_tool\connections.json`（密码仅做 Base64 混淆，请自行保管好机器）。
 2. **切换连接**：已连接后，每栏顶部的下拉框可快速切换到其他已保存的连接；
-   选择「＋ 新建数据库链接」回到连接表单。
+   选择「＋ 新建数据库链接」回到连接表单。连接弹窗只通过「取消」按钮关闭，点击背景蒙板不会丢失已填写内容。
 3. **同步数据表（结构比对）**：顶部点「同步数据表」，在任一侧输入一个或多个表名
    （逗号/换行分隔），点确定：
+   - 也可打开表名下拉搜索并多选，列表会标出表存在于两侧还是仅存在于一侧；
    - 中部显示每张表的差异明细（缺列/多列/类型/可空/默认值/主键差异）；
    - 左下 SQL = 在**左侧库**执行后结构与右侧一致；右下 SQL 反之。点「复制SQL」即可。
 4. **同步数据（数据比对）**：顶部点「同步数据」，选择/输入一张表，点确定：
+   - 表名使用浅色可搜索下拉，两侧都存在的表可直接选择；
+   - 可选填写 WHERE 过滤条件（可省略 `WHERE` 前缀），条件会在左右两侧自动同步；
+   - WHERE 范围内任一侧超过 500 行时会先提示，可返回缩小范围或确认继续；
    - 按主键比对行（无主键时只能识别多/少行）；
-   - 中部显示差异明细（仅左侧/仅右侧/内容不同，变更列高亮）；
-   - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制。
+   - 差异不超过 2000 条时展示全部明细；超过时仅展示前 200 条；
+   - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制；单方向超过 5000 条时会截断并要求使用 WHERE 分批处理。
 
 ## 界面展示
 ![](https://img11.360buyimg.com/cxxjwimg/jfs/t1/494837/36/3503/111584/6a6dbcf2F421c1202/06d77a64fd94e218.webp)
@@ -82,8 +87,9 @@ ___
 
 ```
 app.py            应用入口与 JS API 桥（连接管理、比对调度）
+package_windows.py Unicode-safe Windows PyInstaller 打包入口
 dbcore.py         比对核心：三种方言的元数据读取、结构/数据差异 SQL 生成
-web/              网页 UI（index.html / style.css / app.js）
+web/              网页 UI 与应用图标（app-icon.svg / app-icon.png / app-icon.ico）
 tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文本校验
 启动.bat          启动应用
 初始化环境.bat     首次创建虚拟环境
@@ -94,7 +100,15 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 
 ```bat
 .venv\Scripts\python.exe tests\selftest.py
+.venv\Scripts\python.exe tests\test_where.py
+.venv\Scripts\python.exe tests\test_limits.py
+.venv\Scripts\python.exe tests\test_urls.py
+.venv\Scripts\python.exe tests\test_profiles.py
 ```
+
+连接弹窗的“粘贴 JDBC URL / DSN”支持 Oracle SID/服务名，以及带账号密码的
+`jdbc:oracle:thin:user/password@host:1521:SID`；MySQL 支持 `mysql://...` 和
+`jdbc:mysql://host:3306/database?...`，末尾的 JDBC 连接参数会自动忽略。
 
 ## 限制说明
 
@@ -111,11 +125,13 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 打包.bat
 ```
 
-产物在 `dist\数据库同步比对工具\`。
+产物在 `dist\数据库同步比对工具\`。`打包.bat` 只负责调用 ASCII 安全的入口，`package_windows.py` 使用 ASCII 内部构建名生成 PyInstaller 产物，再将最终目录和 exe 改为中文名称，并将 `web\app-icon.ico` 同时用于 exe、窗口和任务栏图标。
 
 ### Oracle 11g 依赖打包
 
-Oracle 11g 需要 `python-oracledb` 的 thick mode，必须随程序携带 Oracle Instant Client（例如 21.x Basic / Basic Light）。
+Oracle 11g 需要 `python-oracledb` 的 thick mode。本项目当前随包使用的 Instant Client 21.22
+已在现有 Oracle 11g 环境中实测可完成连接和本工具所需的常规查询，但 Oracle 官方兼容矩阵并未将
+Client 21 列为所有 11g 版本的认证组合；这属于当前环境实测可用，不代表官方保证所有 11g 环境兼容。
 打包脚本会自动检查并打包下面目录：
 
 ```text
@@ -124,12 +140,12 @@ Oracle 11g 需要 `python-oracledb` 的 thick mode，必须随程序携带 Oracl
 
 使用方式：
 
-1. 下载并解压 Oracle Instant Client for Windows x64（Basic 或 Basic Light）。
+1. 下载并解压与目标数据库兼容的 Oracle Instant Client for Windows x64（Basic 或 Basic Light）。
 2. 在项目根目录新建 `.oracle_client\instantclient_21_22\`。
 3. 将解压后的 `oci.dll`、`oraociei*.dll` / `oraociicus*.dll`、`oraons.dll`、`network\admin`（如有 `tnsnames.ora`）等文件放入该目录。
 4. 运行 `打包.bat`。脚本会把该目录打进 exe 产物，运行时会优先从打包目录初始化 Oracle thick mode。
 
-如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。只有连接 Oracle 11g 这类必须使用 thick mode 的旧版本时，才需要先放入 Instant Client 后再打包。
+如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。连接 Oracle 11g 这类需要 thick mode 的旧版本时必须携带客户端。若要求 Oracle 官方认证的 11g 兼容组合，应按目标数据库的准确版本选择客户端；不要仅依据本项目对 21.22 的单一环境实测结果。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 

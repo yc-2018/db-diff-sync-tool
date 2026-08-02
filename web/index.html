@@ -4,13 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>数据库同步比对工具</title>
+<link rel="icon" href="app-icon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header class="topbar">
   <div class="brand">
-    <span class="logo">⇄</span> 数据库同步比对工具
+    <img class="logo" src="app-icon.svg" alt="" aria-hidden="true"> 数据库同步比对工具
   </div>
   <div class="modes">
     <button id="btnModeStruct" class="mode-btn" disabled title="两侧都连接后可用">同步数据表</button>
@@ -79,8 +80,10 @@
       <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
       <div class="fbtns">
         <button class="btn btn-test">测试连接</button>
-        <button class="btn btn-primary btn-connect">连 接</button>
+        <span class="fbtn-spacer"></span>
         <button class="btn btn-cancel-edit" style="display:none">取消</button>
+        <button class="btn btn-save">仅保存</button>
+        <button class="btn btn-primary btn-connect">保存并连接</button>
       </div>
       <div class="form-msg"></div>
     </div>
@@ -88,19 +91,26 @@
     <!-- 已连接工作区 -->
     <div class="workspace" id="ws-left" style="display:none">
       <div class="tool-struct tool-block">
-        <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+        <div class="table-picker" data-picker="struct">
+          <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+          <button type="button" class="table-picker-toggle" title="选择数据表" aria-label="展开数据表列表" aria-expanded="false"><span>▾</span></button>
+          <div class="table-menu" role="listbox" aria-multiselectable="true"></div>
+        </div>
         <button class="btn btn-primary btn-compare-struct">确定</button>
       </div>
       <div class="tool-data tool-block" style="display:none">
         <div class="data-query-row">
-          <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+          <div class="table-picker" data-picker="data">
+            <input class="data-table-input" placeholder="输入或选择要比对的表名" autocomplete="off">
+            <button type="button" class="table-picker-toggle" title="选择数据表" aria-label="展开数据表列表" aria-expanded="false"><span>▾</span></button>
+            <div class="table-menu" role="listbox"></div>
+          </div>
           <button class="btn btn-primary btn-compare-data">确定</button>
         </div>
         <div class="where-editor">
           <div class="where-label">WHERE</div>
           <div class="where-body">
             <textarea class="data-where-input" rows="2" spellcheck="false" placeholder="可选过滤条件，支持换行，例如：&#10;id &gt; 100 and status = 1"></textarea>
-            <div class="where-preview" aria-hidden="true"></div>
           </div>
         </div>
       </div>
@@ -175,27 +185,36 @@
       <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
       <div class="fbtns">
         <button class="btn btn-test">测试连接</button>
-        <button class="btn btn-primary btn-connect">连 接</button>
+        <span class="fbtn-spacer"></span>
         <button class="btn btn-cancel-edit" style="display:none">取消</button>
+        <button class="btn btn-save">仅保存</button>
+        <button class="btn btn-primary btn-connect">保存并连接</button>
       </div>
       <div class="form-msg"></div>
     </div>
 
     <div class="workspace" id="ws-right" style="display:none">
       <div class="tool-struct tool-block">
-        <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+        <div class="table-picker" data-picker="struct">
+          <textarea class="table-input" rows="2" placeholder="输入表名, 多个表用逗号或换行分隔, 如:&#10;EMP, DEPT, SALGRADE"></textarea>
+          <button type="button" class="table-picker-toggle" title="选择数据表" aria-label="展开数据表列表" aria-expanded="false"><span>▾</span></button>
+          <div class="table-menu" role="listbox" aria-multiselectable="true"></div>
+        </div>
         <button class="btn btn-primary btn-compare-struct">确定</button>
       </div>
       <div class="tool-data tool-block" style="display:none">
         <div class="data-query-row">
-          <input class="data-table-input" list="tables-datalist" placeholder="输入或选择要比对的表名">
+          <div class="table-picker" data-picker="data">
+            <input class="data-table-input" placeholder="输入或选择要比对的表名" autocomplete="off">
+            <button type="button" class="table-picker-toggle" title="选择数据表" aria-label="展开数据表列表" aria-expanded="false"><span>▾</span></button>
+            <div class="table-menu" role="listbox"></div>
+          </div>
           <button class="btn btn-primary btn-compare-data">确定</button>
         </div>
         <div class="where-editor">
           <div class="where-label">WHERE</div>
           <div class="where-body">
             <textarea class="data-where-input" rows="2" spellcheck="false" placeholder="可选过滤条件，支持换行，例如：&#10;id &gt; 100 and status = 1"></textarea>
-            <div class="where-preview" aria-hidden="true"></div>
           </div>
         </div>
       </div>
@@ -213,7 +232,6 @@
   </section>
 </main>
 
-<datalist id="tables-datalist"></datalist>
 <div class="toast" id="toast"></div>
 <script src="app.js"></script>
 </body>

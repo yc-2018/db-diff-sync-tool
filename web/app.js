@@ -5,6 +5,8 @@ const SIDES = ["left", "right"];
 const S = {
   profiles: [],
   sides: { left: null, right: null },   // {profile_id, name, type, type_name}
+  tables: { left: [], right: [] },
+  tableListRequest: 0,
   mode: null,                            // 'struct' | 'data'
   busy: false,
 };
@@ -17,33 +19,6 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-
-function renderWherePreview(side) {
-  const pane = paneOf(side);
-  const input = $(".data-where-input", pane);
-  const preview = $(".where-preview", pane);
-  if (!input || !preview) return;
-  const raw = input.value.trim();
-  if (!raw) {
-    preview.innerHTML = "";
-    preview.classList.remove("has-value");
-    return;
-  }
-  let html = esc(raw);
-  html = html.replace(/(&#39;[^\n]*?&#39;|&quot;[^\n]*?&quot;)/g, '<span class="sql-str">$1</span>');
-  html = html.replace(/\b(AND|OR|NOT|IN|LIKE|BETWEEN|IS|NULL|EXISTS)\b/gi, '<span class="sql-kw">$1</span>');
-  html = html.replace(/(=|&lt;&gt;|!=|&gt;=|&lt;=|&gt;|&lt;)/g, '<span class="sql-op">$1</span>');
-  html = html.replace(/\b(\d+(?:\.\d+)?)\b/g, '<span class="sql-num">$1</span>');
-  preview.innerHTML = html;
-  preview.classList.add("has-value");
-}
-
-function syncWhereInput(side, value) {
-  const other = side === "left" ? "right" : "left";
-  $(".data-where-input", paneOf(other)).value = value;
-  renderWherePreview(side);
-  renderWherePreview(other);
-}
 
 function toast(msg, ms) {
   const t = $("#toast");
@@ -240,53 +215,90 @@ function renderAll() {
 async function doTest(side) {
   const p = formProfile(side);
   setFormMsg(side, "测试中…", "");
-  const r = await api("test_profile", p);
-  setFormMsg(side, r.msg, r.ok ? "ok" : "err");
+  try {
+    const r = await api("test_profile", p);
+    setFormMsg(side, r.msg, r.ok ? "ok" : "err");
+  } catch (e) {
+    setFormMsg(side, "测试失败: " + e, "err");
+  }
+}
+
+function profileNameError(p) {
+  const name = (p.name || "").trim();
+  if (!name) return "";
+  for (const q of S.profiles) {
+    if (q.id !== p.id && (q.name || "").trim() === name) {
+      return "配置名「" + name + "」已存在, 请使用其他名称";
+    }
+  }
+  return "";
+}
+
+async function persistProfile(side, p) {
+  const nameError = profileNameError(p);
+  if (nameError) {
+    setFormMsg(side, nameError, "err");
+    return null;
+  }
+  const r = await api("save_profile", p);
+  if (!r.ok) {
+    setFormMsg(side, r.msg || "保存失败", "err");
+    return null;
+  }
+  applyState(r);
+  const saved = r.profile || p;
+  paneOf(side).dataset.pid = saved.id || p.id || "";
+  return saved;
+}
+
+function closeConnectionForm(side) {
+  const f = paneOf(side);
+  f.classList.remove("modal-mode");
+  const btnCancel = $(".btn-cancel-edit", f);
+  if (btnCancel) btnCancel.style.display = "none";
+  delete f._editBackup;
+  renderPane(side);
+  setFormMsg(side, "", "");
+}
+
+async function doSaveProfile(side) {
+  const f = paneOf(side);
+  const backup = f._editBackup;
+  setFormMsg(side, "保存中…", "");
+  setBusy(true);
+  try {
+    const saved = await persistProfile(side, formProfile(side));
+    if (!saved) return;
+    toast(backup && backup.hadConn ? "配置已保存，当前连接未变更" : "连接配置已保存");
+    if (backup && backup.hadConn) closeConnectionForm(side);
+    else setFormMsg(side, "配置已保存，尚未连接数据库", "ok");
+  } catch (e) {
+    setFormMsg(side, "保存失败: " + e, "err");
+  } finally {
+    setBusy(false);
+  }
 }
 
 async function doConnect(side) {
-  const p = formProfile(side);
-  const remember = true;
-  const btnConnect = $(".btn-connect", paneOf(side));
-  const isEdit = btnConnect.dataset.editMode === "1";
-  // 前端名称唯一校验
-  const name = (p.name || "").trim();
-  if (name) {
-    for (const q of S.profiles) {
-      if (q.id !== p.id && (q.name || "").trim() === name) {
-        setFormMsg(side, "配置名「" + name + "」已存在, 请使用其他名称", "err");
-        return;
-      }
-    }
-  }
-  setFormMsg(side, isEdit ? "保存中…" : "连接中…", "");
+  setFormMsg(side, "正在保存配置…", "");
   setBusy(true);
   try {
-    if (isEdit) {
-      // 先保存编辑
-      const ur = await api("update_profile", p);
-      if (!ur.ok) { setFormMsg(side, ur.msg, "err"); return; }
-      // 断开旧连接
-      await api("disconnect", side);
-      // 用新配置重连
-      const r = await api("connect", side, p, false);
-      if (!r.ok) { setFormMsg(side, r.msg, "err"); return; }
-      applyState(r);
-      toast((side === "left" ? "左侧" : "右侧") + "已更新并重连");
-    } else {
-      const r = await api("connect", side, p, remember);
-      if (!r.ok) { setFormMsg(side, r.msg, "err"); return; }
-      applyState(r);
-      toast((side === "left" ? "左侧" : "右侧") + "连接成功");
+    const saved = await persistProfile(side, formProfile(side));
+    if (!saved) return;
+    setFormMsg(side, "配置已保存，正在连接…", "");
+    const r = await api("connect", side, saved, false);
+    if (!r.ok) {
+      setFormMsg(side, "配置已保存；" + (r.msg || "连接失败"), "err");
+      return;
     }
+    applyState(r);
+    if (S.mode && S.sides.left && S.sides.right) await loadTableList();
+    closeConnectionForm(side);
+    toast((side === "left" ? "左侧" : "右侧") + "连接成功");
+  } catch (e) {
+    setFormMsg(side, "配置已保存；连接失败: " + e, "err");
   } finally {
     setBusy(false);
-    btnConnect.textContent = "连 接";
-    delete btnConnect.dataset.editMode;
-    const btnCancel = $(".btn-cancel-edit", paneOf(side));
-    if (btnCancel) btnCancel.style.display = "none";
-    delete paneOf(side)._editBackup;
-    $("#form-" + side).classList.remove("modal-mode");
   }
 }
 
@@ -295,13 +307,12 @@ async function doSwitch(side, pid) {
     // 新建连接: 弹模态框, 不动当前连接
     fillForm(side, null);
     $("#form-" + side).classList.add("modal-mode");
-    // 清理编辑态
-    const btnConnect = $(".btn-connect", paneOf(side));
-    btnConnect.textContent = "连 接";
-    delete btnConnect.dataset.editMode;
     const btnCancel = $(".btn-cancel-edit", paneOf(side));
     if (btnCancel) btnCancel.style.display = "";
-    delete paneOf(side)._editBackup;
+    paneOf(side)._editBackup = {
+      hadConn: !!S.sides[side],
+      profileId: S.sides[side] ? S.sides[side].profile_id : null,
+    };
     return;
   }
   const p = S.profiles.find(x => x.id === pid);
@@ -336,19 +347,25 @@ async function doDisconnect(side) {
   const r = await api("disconnect", side);
   applyState(r);
   if (S.mode) { S.mode = null; }
-  // 清理编辑态
-  const btnConnect = $(".btn-connect", paneOf(side));
-  btnConnect.textContent = "连 接";
-  delete btnConnect.dataset.editMode;
   renderAll();
 }
 
 function applyState(r) {
+  const oldLeft = S.sides.left && S.sides.left.profile_id;
+  const oldRight = S.sides.right && S.sides.right.profile_id;
   S.profiles = r.profiles || [];
   S.sides.left = r.left;
   S.sides.right = r.right;
+  const connectionsChanged = oldLeft !== (r.left && r.left.profile_id)
+    || oldRight !== (r.right && r.right.profile_id);
+  if (connectionsChanged) {
+    ++S.tableListRequest;
+    S.tables = { left: [], right: [] };
+    closeTablePickers();
+  }
   if (!(S.sides.left && S.sides.right)) S.mode = null;
   renderAll();
+  if (connectionsChanged && S.mode && S.sides.left && S.sides.right) loadTableList();
 }
 
 function setBusy(b) {
@@ -360,6 +377,153 @@ function setBusy(b) {
 
 function parseTables(text) {
   return text.split(/[\s,，;；\n]+/).map(s => s.trim()).filter(Boolean);
+}
+
+function tableCatalog() {
+  const left = new Set(S.tables.left);
+  const right = new Set(S.tables.right);
+  return Array.from(new Set([...left, ...right]))
+    .sort((a, b) => a.localeCompare(b, "zh-CN", { sensitivity: "base" }))
+    .map(name => ({ name, left: left.has(name), right: right.has(name) }));
+}
+
+function tableAvailability(table) {
+  if (table.left && table.right) return { text: "两侧", cls: "both" };
+  return table.left ? { text: "仅左", cls: "left" } : { text: "仅右", cls: "right" };
+}
+
+function closeTablePickers(except) {
+  $$(".table-picker.open").forEach(picker => {
+    if (picker === except) return;
+    picker.classList.remove("open");
+    $(".table-picker-toggle", picker).setAttribute("aria-expanded", "false");
+  });
+}
+
+function syncTableInputs(selector, value) {
+  for (const side of SIDES) $(selector, paneOf(side)).value = value;
+}
+
+function renderTableMenu(picker) {
+  const mode = picker.dataset.picker;
+  const menu = $(".table-menu", picker);
+  const selected = new Set(parseTables($(mode === "struct" ? ".table-input" : ".data-table-input", picker).value));
+  const query = (picker.dataset.filter || "").trim().toLocaleLowerCase();
+  const tables = tableCatalog().filter(t => !query || t.name.toLocaleLowerCase().includes(query));
+
+  menu.innerHTML = "";
+  if (mode === "struct") {
+    const tools = document.createElement("div");
+    tools.className = "table-menu-tools";
+    tools.innerHTML = `<input class="table-menu-search" value="${esc(picker.dataset.filter || "")}" placeholder="搜索表名" autocomplete="off"><button type="button" class="table-menu-clear">清空</button>`;
+    menu.appendChild(tools);
+    const search = $(".table-menu-search", tools);
+    search.addEventListener("input", e => {
+      picker.dataset.filter = e.target.value;
+      renderTableMenu(picker);
+      const next = $(".table-menu-search", picker);
+      next.focus();
+      next.setSelectionRange(next.value.length, next.value.length);
+    });
+    $(".table-menu-clear", tools).addEventListener("click", () => {
+      syncTableInputs(".table-input", "");
+      renderTableMenu(picker);
+    });
+  }
+
+  const options = document.createElement("div");
+  options.className = "table-menu-options";
+  if (!tables.length) {
+    options.innerHTML = `<div class="table-menu-empty">${tableCatalog().length ? "没有匹配的表" : "暂无数据表，请刷新连接"}</div>`;
+  }
+  for (const table of tables) {
+    const availability = tableAvailability(table);
+    const unavailable = mode === "data" && !(table.left && table.right);
+    const option = document.createElement("button");
+    option.type = "button";
+    option.className = "table-option" + (selected.has(table.name) ? " selected" : "") + (unavailable ? " unavailable" : "");
+    option.dataset.table = table.name;
+    option.disabled = unavailable;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", selected.has(table.name) ? "true" : "false");
+    option.innerHTML = `${mode === "struct" ? '<span class="table-check"></span>' : ""}<span class="table-option-name">${esc(table.name)}</span><span class="table-side ${availability.cls}">${availability.text}</span>`;
+    option.addEventListener("click", () => {
+      if (mode === "data") {
+        syncTableInputs(".data-table-input", table.name);
+        for (const p of $$('.table-picker[data-picker="data"]')) p.dataset.filter = "";
+        closeTablePickers();
+        return;
+      }
+      const current = parseTables($(".table-input", picker).value);
+      const next = current.includes(table.name)
+        ? current.filter(name => name !== table.name)
+        : [...current, table.name];
+      syncTableInputs(".table-input", next.join(", "));
+      renderTableMenu(picker);
+      const search = $(".table-menu-search", picker);
+      if (search) search.focus();
+    });
+    options.appendChild(option);
+  }
+  menu.appendChild(options);
+}
+
+function openTablePicker(picker, focusSearch) {
+  closeTablePickers(picker);
+  picker.classList.add("open");
+  $(".table-picker-toggle", picker).setAttribute("aria-expanded", "true");
+  renderTableMenu(picker);
+  if (focusSearch) {
+    const search = $(".table-menu-search", picker);
+    if (search) search.focus();
+  }
+}
+
+function bindTablePicker(side, mode) {
+  const pane = paneOf(side);
+  const picker = $(`.table-picker[data-picker="${mode}"]`, pane);
+  const field = $(mode === "struct" ? ".table-input" : ".data-table-input", picker);
+  const toggle = $(".table-picker-toggle", picker);
+  const menu = $(".table-menu", picker);
+  const selector = mode === "struct" ? ".table-input" : ".data-table-input";
+
+  menu.addEventListener("click", e => e.stopPropagation());
+  toggle.addEventListener("click", e => {
+    e.stopPropagation();
+    if (picker.classList.contains("open")) {
+      closeTablePickers();
+    } else {
+      picker.dataset.filter = "";
+      openTablePicker(picker, mode === "struct");
+    }
+  });
+  field.addEventListener("input", e => {
+    syncTableInputs(selector, e.target.value);
+    if (mode === "data") {
+      picker.dataset.filter = e.target.value;
+      openTablePicker(picker, false);
+    } else if (picker.classList.contains("open")) {
+      renderTableMenu(picker);
+    }
+  });
+  if (mode === "data") {
+    field.addEventListener("focus", () => {
+      if (!picker.classList.contains("open")) {
+        picker.dataset.filter = "";
+        openTablePicker(picker, false);
+      }
+    });
+  }
+  field.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      closeTablePickers();
+      return;
+    }
+    if (e.key === "ArrowDown" && picker.classList.contains("open")) {
+      const first = $(".table-option:not(:disabled)", picker);
+      if (first) { e.preventDefault(); first.focus(); }
+    }
+  });
 }
 
 async function doCompareStruct() {
@@ -417,6 +581,22 @@ async function doCompareData() {
   }
   setBusy(true);
   try {
+    const preview = await api("preview_data_compare", t, where);
+    if (!preview.ok) { toast(preview.msg || "无法统计筛选范围", 4000); return; }
+    if (preview.requires_confirmation) {
+      setBusy(false);
+      const proceed = confirm(
+        `筛选范围超过 ${preview.warning_threshold} 行：\n` +
+        `左侧 ${preview.left_count} 行，右侧 ${preview.right_count} 行。\n\n` +
+        "建议先填写 WHERE 缩小范围，避免等待时间过长。\n" +
+        "点击“确定”仍然比对，点击“取消”返回填写 WHERE。"
+      );
+      if (!proceed) {
+        $(".data-where-input", paneOf("left")).focus();
+        return;
+      }
+      setBusy(true);
+    }
     const r = await api("compare_data", t, where);
     if (!r.ok) { toast(r.msg || "比对失败", 4000); return; }
     renderDataResults(r);
@@ -450,7 +630,8 @@ function renderDataResults(r) {
       <span>内容不同 <b>${r.updated}</b></span>
       ${r.no_pk ? '<span style="color:var(--err)">⚠ 无主键, 仅识别多/少行</span>' : ""}
     </div>
-    ${r.detail_capped ? '<div style="color:var(--text-dim);font-size:11px;padding-bottom:6px">差异较多, 明细仅展示前 200 条, 完整修复SQL见下方SQL区</div>' : ""}
+    ${r.detail_capped ? '<div style="color:var(--text-dim);font-size:11px;padding-bottom:6px">差异超过 2000 条，明细仅展示前 200 条，修复SQL见下方SQL区</div>' : ""}
+    ${r.sql_capped ? '<div style="color:var(--err);font-size:12px;padding-bottom:6px">修复SQL超过单方向 5000 条，当前输出已截断，不能作为完整修复方案；请填写 WHERE 分批处理。</div>' : ""}
     ${r.details.length ? `<table class="dtable">
       <thead><tr><th>差异类型</th><th>主键</th><th>左侧数据</th><th>右侧数据</th></tr></thead>
       <tbody>${r.details.map(d => `<tr>
@@ -466,16 +647,20 @@ function renderDataResults(r) {
 }
 
 async function loadTableList() {
-  const dl = $("#tables-datalist");
-  dl.innerHTML = "";
-  for (const side of SIDES) {
-    if (!S.sides[side]) continue;
-    const r = await api("list_tables", side);
-    if (r.ok) {
-      dl.innerHTML = r.tables.map(t => `<option value="${esc(t)}">`).join("");
-      return;
+  const request = ++S.tableListRequest;
+  const results = await Promise.all(SIDES.map(async side => {
+    if (!S.sides[side]) return [];
+    try {
+      const r = await api("list_tables", side);
+      return r.ok ? r.tables : [];
+    } catch (_e) {
+      return [];
     }
-  }
+  }));
+  if (request !== S.tableListRequest) return;
+  S.tables.left = results[0];
+  S.tables.right = results[1];
+  $$(".table-picker.open").forEach(renderTableMenu);
 }
 
 /* ---------------- 复制 ---------------- */
@@ -500,6 +685,7 @@ function bindPane(side) {
   $(".btn-parse-url", f).addEventListener("click", () => doParseUrl(side));
   $(".f-url", f).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doParseUrl(side); } });
   $(".btn-test", f).addEventListener("click", () => doTest(side));
+  $(".btn-save", f).addEventListener("click", () => doSaveProfile(side));
   $(".btn-connect", f).addEventListener("click", () => doConnect(side));
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
@@ -507,8 +693,6 @@ function bindPane(side) {
   $("#del-" + side).addEventListener("click", () => doDelete(side));
   const btnCancel = $(".btn-cancel-edit", paneOf(side));
   if (btnCancel) btnCancel.addEventListener("click", () => doCancelEdit(side));
-  const formEl = $("#form-" + side);
-  if (formEl) formEl.addEventListener("click", e => onModalBackdropClick(side, e));
   // 自定义下拉
   const dd = $("#dd-" + side);
   const ddDisplay = $("#dd-display-" + side);
@@ -534,12 +718,9 @@ function bindPane(side) {
       $("#ws-" + side).style.display = "none";
       // 记录编辑前状态: 从下拉进编辑, 之前可能已连或未连
       paneOf(side)._editBackup = { hadConn: !!(S.sides[side]), profileId: S.sides[side] ? S.sides[side].profile_id : null };
-      const btnConnect = $(".btn-connect", paneOf(side));
-      btnConnect.textContent = "保存并重连";
-      btnConnect.dataset.editMode = "1";
       const btnCancel = $(".btn-cancel-edit", paneOf(side));
       if (btnCancel) btnCancel.style.display = "";
-      setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
+      setFormMsg(side, "仅保存不会中断当前连接；保存并连接成功后才会替换当前连接", "");
     }
   });
   // 点其他地方关闭下拉
@@ -549,18 +730,13 @@ function bindPane(side) {
   $(".btn-copy", f).addEventListener("click", () => copySQL(side));
   $(".btn-compare-struct", f).addEventListener("click", doCompareStruct);
   $(".btn-compare-data", f).addEventListener("click", doCompareData);
-  // 两侧表名输入保持同步
-  $(".table-input", f).addEventListener("input", e => {
+  bindTablePicker(side, "struct");
+  bindTablePicker(side, "data");
+  // 两侧 where 输入保持同步
+  $(".data-where-input", f).addEventListener("input", e => {
     const other = side === "left" ? "right" : "left";
-    $(".table-input", paneOf(other)).value = e.target.value;
+    $(".data-where-input", paneOf(other)).value = e.target.value;
   });
-  $(".data-table-input", f).addEventListener("input", e => {
-    const other = side === "left" ? "right" : "left";
-    $(".data-table-input", paneOf(other)).value = e.target.value;
-  });
-  // 两侧 where 输入保持同步，并在下方预览中做简单 SQL 关键字高亮
-  $(".data-where-input", f).addEventListener("input", e => syncWhereInput(side, e.target.value));
-  renderWherePreview(side);
   // SQL 输出区拉杆拖拽 (两侧同步高度)
   bindSqlResizer(side);
   onTypeChange(side);
@@ -604,6 +780,7 @@ async function doRefresh(side) {
     const r = await api("refresh", side);
     if (!r.ok) { toast(r.msg || "刷新失败"); return; }
     applyState(r);
+    if (S.sides.left && S.sides.right) await loadTableList();
     toast((side === "left" ? "左侧" : "右侧") + "已刷新");
   } finally {
     setBusy(false);
@@ -622,40 +799,18 @@ async function doEdit(side) {
   // 显示取消按钮
   const btnCancel = $(".btn-cancel-edit", paneOf(side));
   if (btnCancel) btnCancel.style.display = "";
-  // 修改连接按钮文案
-  const btnConnect = $(".btn-connect", paneOf(side));
-  btnConnect.textContent = "保存并重连";
-  btnConnect.dataset.editMode = "1";
-  setFormMsg(side, "编辑模式: 修改后点击「保存并重连」生效, 密码留空则不变", "");
+  setFormMsg(side, "仅保存不会中断当前连接；保存并连接成功后才会替换当前连接", "");
 }
 
 function doCancelEdit(side) {
-  const f = paneOf(side);
-  delete f._editBackup;
-  // 关闭模态框
-  $("#form-" + side).classList.remove("modal-mode");
-  // 清理编辑态
-  const btnConnect = $(".btn-connect", f);
-  btnConnect.textContent = "连 接";
-  delete btnConnect.dataset.editMode;
-  const btnCancel = $(".btn-cancel-edit", f);
-  if (btnCancel) btnCancel.style.display = "none";
-  setFormMsg(side, "", "");
+  closeConnectionForm(side);
 }
-
-// 点击模态框遮罩空白处关闭
-function onModalBackdropClick(side, e) {
-  // 只在点击的是 .conn-form.modal-mode 本身(遮罩)时关闭, 点表单内容不关闭
-  if (e.target === e.currentTarget) {
-    doCancelEdit(side);
-  }
-}
-
 
 function setMode(m) {
   if (!(S.sides.left && S.sides.right)) return;
   // 单选: 点击哪个就选哪个, 不再 toggle
   if (S.mode === m) return;
+  closeTablePickers();
   // 切换模式时清空两侧的比对结果和 SQL 输出
   for (const side of SIDES) {
     const ws = $("#ws-" + side);
@@ -666,11 +821,17 @@ function setMode(m) {
   }
   S.mode = m;
   renderModes();
-  if (m === "data") loadTableList();
+  loadTableList();
 }
 
 async function init() {
   for (const side of SIDES) bindPane(side);
+  document.addEventListener("click", e => {
+    if (!e.target.closest(".table-picker")) closeTablePickers();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeTablePickers();
+  });
   $("#btnModeStruct").addEventListener("click", () => setMode("struct"));
   $("#btnModeData").addEventListener("click", () => setMode("data"));
   const st = await api("get_state");
@@ -695,6 +856,7 @@ async function init() {
   if (S.sides.left && S.sides.right && !S.mode) {
     S.mode = "struct";
     renderModes();
+    await loadTableList();
   }
 }
 
@@ -714,7 +876,7 @@ async function doParseUrl(side) {
     if (p.host) $(".f-hostname", f).value = p.host;
     if (p.port) $(".f-portnum", f).value = String(p.port);
     if (p.user) $(".f-user", f).value = p.user;
-    // 密码不填 (URL 里没密码时不动)
+    if (p.password) $(".f-pwd", f).value = p.password;
     if (p.ora_mode) {
       $(".f-ora-mode", f).value = p.ora_mode;
       $(".f-ora-value", f).value = p.ora_mode === "sid" ? (p.sid || "") : (p.service_name || "");
