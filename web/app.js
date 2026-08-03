@@ -40,6 +40,7 @@ function paneOf(side) { return $("#pane-" + side); }
 function formProfile(side) {
   const f = paneOf(side);
   const type = $(".f-type", f).value;
+  const rawPort = $(".f-portnum", f).value.trim();
   // 标签: 从 radio 组读取
   let tag = "";
   const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
@@ -49,8 +50,8 @@ function formProfile(side) {
     type: type,
     name: $(".f-name", f).value.trim(),
     tag: tag,
-    host: $(".f-hostname", f).value.trim() || "127.0.0.1",
-    port: parseInt($(".f-portnum", f).value, 10) || (type === "mysql" ? 3306 : 1521),
+    host: $(".f-hostname", f).value.trim(),
+    port: /^\d+$/.test(rawPort) ? Number(rawPort) : rawPort,
     user: $(".f-user", f).value.trim(),
     password: $(".f-pwd", f).value,
     ora_mode: $(".f-ora-mode", f).value,
@@ -65,6 +66,20 @@ function formProfile(side) {
     p.path = $(".f-path", f).value.trim();
   }
   return p;
+}
+
+function profileValidationError(p, requireName) {
+  if (requireName && !p.name) return "请填写配置名";
+  if (p.type === "sqlite") return p.path ? "" : "请填写 SQLite 数据库文件路径";
+  if (!p.host) return "请填写主机";
+  if (!Number.isInteger(p.port) || p.port < 1 || p.port > 65535) return "请输入 1 到 65535 之间的有效端口";
+  if (!p.user) return "请填写用户名";
+  if (p.type === "oracle") {
+    if (p.ora_mode === "sid" && !p.sid) return "请填写 Oracle SID";
+    if (p.ora_mode !== "sid" && !p.service_name) return "请填写 Oracle 服务名";
+  }
+  if (p.type === "mysql" && !p.database) return "请填写 MySQL 数据库名";
+  return "";
 }
 
 function fillForm(side, p) {
@@ -212,6 +227,11 @@ function renderAll() {
 
 async function doTest(side) {
   const p = formProfile(side);
+  const validationError = profileValidationError(p, false);
+  if (validationError) {
+    setFormMsg(side, validationError, "err");
+    return;
+  }
   setFormMsg(side, "测试中…", "");
   try {
     const r = await api("test_profile", p);
@@ -233,6 +253,11 @@ function profileNameError(p) {
 }
 
 async function persistProfile(side, p) {
+  const validationError = profileValidationError(p, true);
+  if (validationError) {
+    setFormMsg(side, validationError, "err");
+    return null;
+  }
   const nameError = profileNameError(p);
   if (nameError) {
     setFormMsg(side, nameError, "err");
@@ -376,7 +401,7 @@ function setBusy(b) {
   document.body.classList.toggle("loading", b);
 }
 
-/* ---------------- 同步表(结构) ---------------- */
+/* ---------------- 对比表(结构) ---------------- */
 
 function parseTables(text) {
   return text.split(/[\s,，;；\n]+/).map(s => s.trim()).filter(Boolean);
@@ -392,7 +417,7 @@ function tableCatalog() {
 
 function tableAvailability(table) {
   if (table.left && table.right) return { text: "两侧", cls: "both" };
-  return table.left ? { text: "仅左", cls: "left" } : { text: "仅右", cls: "right" };
+  return table.left ? { text: "← 仅左", cls: "left" } : { text: "仅右 →", cls: "right" };
 }
 
 function closeTablePickers(except) {
@@ -460,13 +485,15 @@ function renderTableMenu(picker) {
         return;
       }
       const current = parseTables($(".table-input", picker).value);
-      const next = current.includes(table.name)
+      const wasSelected = current.includes(table.name);
+      const next = wasSelected
         ? current.filter(name => name !== table.name)
         : [...current, table.name];
       syncTableInputs(".table-input", next.join(", "));
-      renderTableMenu(picker);
+      option.classList.toggle("selected", !wasSelected);
+      option.setAttribute("aria-selected", wasSelected ? "false" : "true");
       const search = $(".table-menu-search", picker);
-      if (search) search.focus();
+      if (search) search.focus({ preventScroll: true });
     });
     options.appendChild(option);
   }
@@ -545,7 +572,7 @@ async function doCompareStruct() {
 }
 
 const STATUS_TXT = {
-  same: "一致", diff: "有差异", only_left: "仅左侧", only_right: "仅右侧", missing_both: "两侧均无",
+  same: "一致", diff: "有差异", only_left: "← 仅左侧", only_right: "仅右侧 →", missing_both: "两侧均无",
 };
 const STATUS_CLS = {
   same: "st-same", diff: "st-diff", only_left: "st-only", only_right: "st-only", missing_both: "st-missing",
@@ -568,7 +595,7 @@ function renderStructResults(r) {
   toast(nDiff ? `比对完成: ${nDiff} 张表有差异` : "比对完成: 全部一致");
 }
 
-/* ---------------- 同步数据 ---------------- */
+/* ---------------- 对比数据 ---------------- */
 
 async function doCompareData() {
   const t = $(".data-table-input", $("#shared-data-picker")).value.trim();
@@ -609,8 +636,8 @@ async function doCompareData() {
 }
 
 function kindTag(kind) {
-  if (kind === "only_left") return '<span class="tag tag-only_left">仅左侧</span>';
-  if (kind === "only_right") return '<span class="tag tag-only_right">仅右侧</span>';
+  if (kind === "only_left") return '<span class="tag tag-only_left">← 仅左侧</span>';
+  if (kind === "only_right") return '<span class="tag tag-only_right">仅右侧 →</span>';
   return '<span class="tag tag-diff">内容不同</span>';
 }
 
@@ -628,8 +655,8 @@ function renderDataResults(r) {
       <span>表 <b>${esc(r.table)}</b></span>
       <span class="sg-l">左侧 <b>${r.left_count}</b> 行</span>
       <span class="sg-r">右侧 <b>${r.right_count}</b> 行</span>
-      <span>仅左侧 <b>${r.only_left}</b></span>
-      <span>仅右侧 <b>${r.only_right}</b></span>
+      <span>← 仅左侧 <b>${r.only_left}</b></span>
+      <span>仅右侧 → <b>${r.only_right}</b></span>
       <span>内容不同 <b>${r.updated}</b></span>
       ${r.no_pk ? '<span style="color:var(--err)">⚠ 无主键, 仅识别多/少行</span>' : ""}
     </div>
@@ -860,7 +887,7 @@ async function init() {
       setBusy(false);
     }
   }
-  // 默认选择「同步表」模式 (如果两侧都已连)
+  // 默认选择「对比表」模式 (如果两侧都已连)
   if (S.sides.left && S.sides.right && !S.mode) {
     S.mode = "struct";
     renderModes();

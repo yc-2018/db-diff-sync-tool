@@ -73,7 +73,45 @@ def save_session(sess):
     SESSION_FILE.write_text(json.dumps(sess, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def validate_profile(p, require_name=False):
+    """校验连接配置；测试连接不要求配置名，保存时要求。"""
+    if not isinstance(p, dict):
+        raise dbcore.DBError("连接配置无效")
+    if require_name and not (p.get("name") or "").strip():
+        raise dbcore.DBError("请填写配置名")
+
+    ptype = (p.get("type") or "").strip().lower()
+    if ptype not in dbcore.TYPE_NAMES:
+        raise dbcore.DBError("请选择数据库类型")
+    if ptype == "sqlite":
+        if not (p.get("path") or "").strip():
+            raise dbcore.DBError("请填写 SQLite 数据库文件路径")
+        return
+
+    if not (p.get("host") or "").strip():
+        raise dbcore.DBError("请填写主机")
+    try:
+        port = int(str(p.get("port") or "").strip())
+    except (TypeError, ValueError):
+        raise dbcore.DBError("请输入有效端口")
+    if not 1 <= port <= 65535:
+        raise dbcore.DBError("端口必须在 1 到 65535 之间")
+    if not (p.get("user") or "").strip():
+        raise dbcore.DBError("请填写用户名")
+
+    if ptype == "oracle":
+        mode = (p.get("ora_mode") or "service").strip().lower()
+        if mode not in ("service", "sid"):
+            raise dbcore.DBError("请选择 Oracle 连接方式")
+        key = "sid" if mode == "sid" else "service_name"
+        if not (p.get(key) or "").strip():
+            raise dbcore.DBError("请填写 Oracle %s" % ("SID" if mode == "sid" else "服务名"))
+    elif not (p.get("database") or "").strip():
+        raise dbcore.DBError("请填写 MySQL 数据库名")
+
+
 def upsert_profile(p):
+    validate_profile(p, require_name=True)
     profiles = load_profiles()
     name = (p.get("name") or "").strip()
     if name:
@@ -152,6 +190,7 @@ class Api:
             if self._sides[other] and self._sides[other]["profile"].get("type") != p.get("type"):
                 return self._state()  # 类型不匹配, 不恢复
             try:
+                validate_profile(p, require_name=True)
                 db = dbcore.connect(p)
             except Exception:
                 # 恢复失败 (如网络不通), 不报错, 仅清除 session
@@ -176,6 +215,7 @@ class Api:
 
     def test_profile(self, p):
         try:
+            validate_profile(p)
             db = dbcore.connect(p)
             db.close()
             return {"ok": True, "msg": "连接成功"}
@@ -204,6 +244,7 @@ class Api:
         other = "right" if side == "left" else "left"
         with self._mu:
             try:
+                validate_profile(p, require_name=True)
                 if self._sides[other] and self._sides[other]["profile"].get("type") != p.get("type"):
                     return {"ok": False,
                             "msg": "两侧必须连接相同类型的数据库(当前另一侧是 %s)"
@@ -280,7 +321,8 @@ class Api:
                 if q.get("id") == p["id"]:
                     # 保留原密码如果新密码为空
                     if not p.get("password"):
-                        p["password"] = _dec(q.get("password_enc", ""))
+                        p["password"] = q.get("password", "")
+                    validate_profile(p, require_name=True)
                     profiles[i] = p
                     found = True
                     break

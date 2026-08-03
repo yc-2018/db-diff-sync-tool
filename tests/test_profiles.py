@@ -18,6 +18,30 @@ with tempfile.TemporaryDirectory() as tmp:
     app.SESSION_FILE = root / "session.json"
 
     api = app.Api()
+
+    empty_test = api.test_profile({})
+    assert empty_test["ok"] is False
+    assert "数据库类型" in empty_test["msg"]
+
+    empty_save = api.save_profile({})
+    assert empty_save["ok"] is False
+    assert "配置名" in empty_save["msg"]
+    assert app.load_profiles() == []
+
+    invalid_profiles = [
+        ({"type": "oracle", "name": "缺主机"}, "主机"),
+        ({"type": "oracle", "name": "缺用户名", "host": "db.example.test", "port": 1521}, "用户名"),
+        ({"type": "oracle", "name": "缺服务名", "host": "db.example.test", "port": 1521,
+          "user": "demo", "ora_mode": "service"}, "服务名"),
+        ({"type": "mysql", "name": "缺数据库", "host": "db.example.test", "port": 3306,
+          "user": "demo"}, "数据库名"),
+        ({"type": "sqlite", "name": "缺文件"}, "文件路径"),
+    ]
+    for invalid, expected in invalid_profiles:
+        result = api.save_profile(invalid)
+        assert result["ok"] is False
+        assert expected in result["msg"]
+
     profile = {
         "type": "oracle",
         "name": "离线配置",
