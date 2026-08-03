@@ -237,9 +237,31 @@ class Api:
         return self._state()
 
     def delete_profile(self, pid):
-        profiles = [q for q in load_profiles() if q.get("id") != pid]
-        save_profiles(profiles)
-        return {"ok": True}
+        try:
+            pid = (pid or "").strip()
+            if not pid:
+                return {"ok": False, "msg": "缺少配置 id"}
+            profiles = load_profiles()
+            if not any(q.get("id") == pid for q in profiles):
+                return {"ok": False, "msg": "找不到该配置"}
+            save_profiles([q for q in profiles if q.get("id") != pid])
+
+            sess = load_session()
+            with self._mu:
+                for side, key in (("left", "last_left"), ("right", "last_right")):
+                    old = self._sides[side]
+                    if old and old["profile"].get("id") == pid:
+                        try:
+                            old["db"].close()
+                        except Exception:
+                            pass
+                        self._sides[side] = None
+                    if sess.get(key) == pid:
+                        del sess[key]
+            save_session(sess)
+            return self._state()
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
 
     def update_profile(self, p):
         """更新已保存的数据源配置 (编辑)"""

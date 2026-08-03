@@ -148,10 +148,10 @@ function renderSelect(side) {
     const tagHtml = p.tag === "test" ? '<span class="tag-badge tag-test">测试</span>'
       : p.tag === "prod" ? '<span class="tag-badge tag-prod">正式</span>'
       : p.tag === "dev" ? '<span class="tag-badge tag-dev">开发</span>' : "";
-    item.innerHTML = `<span class="dd-name">${esc(p.name || p.host)}</span><span class="dd-type">${typeTxt}</span>${tagHtml}<button class="dd-edit" data-pid="${p.id}">编辑</button>`;
+    item.innerHTML = `<span class="dd-name">${esc(p.name || p.host)}</span><span class="dd-type">${typeTxt}</span>${tagHtml}<button class="dd-edit" data-pid="${esc(p.id)}">编辑</button><button class="dd-delete" data-pid="${esc(p.id)}">删除</button>`;
     item.addEventListener("click", e => {
-      // 点编辑按钮不触发切换
-      if (e.target.classList.contains("dd-edit")) return;
+      // 点操作按钮不触发切换
+      if (e.target.closest(".dd-edit, .dd-delete")) return;
       dd.classList.remove("open");
       doSwitch(side, p.id);
     });
@@ -250,11 +250,12 @@ async function persistProfile(side, p) {
 }
 
 function closeConnectionForm(side) {
-  const f = paneOf(side);
+  const pane = paneOf(side);
+  const f = $("#form-" + side);
   f.classList.remove("modal-mode");
-  const btnCancel = $(".btn-cancel-edit", f);
+  const btnCancel = $(".btn-cancel-edit", pane);
   if (btnCancel) btnCancel.style.display = "none";
-  delete f._editBackup;
+  delete pane._editBackup;
   renderPane(side);
   setFormMsg(side, "", "");
 }
@@ -262,13 +263,14 @@ function closeConnectionForm(side) {
 async function doSaveProfile(side) {
   const f = paneOf(side);
   const backup = f._editBackup;
+  const wasModal = $("#form-" + side).classList.contains("modal-mode");
   setFormMsg(side, "保存中…", "");
   setBusy(true);
   try {
     const saved = await persistProfile(side, formProfile(side));
     if (!saved) return;
     toast(backup && backup.hadConn ? "配置已保存，当前连接未变更" : "连接配置已保存");
-    if (backup && backup.hadConn) closeConnectionForm(side);
+    if (wasModal || (backup && backup.hadConn)) closeConnectionForm(side);
     else setFormMsg(side, "配置已保存，尚未连接数据库", "ok");
   } catch (e) {
     setFormMsg(side, "保存失败: " + e, "err");
@@ -330,14 +332,17 @@ async function doDelete(side) {
   const info = S.sides[side];
   if (!info || !info.profile_id) { toast("当前没有已连接的数据源"); return; }
   const p = S.profiles.find(x => x.id === info.profile_id);
-  const name = p ? (p.name || p.id) : "该数据源";
+  deleteProfile(side, info.profile_id, p ? (p.name || p.id) : "该数据源");
+}
+
+async function deleteProfile(side, pid, name) {
   if (!confirm("确认删除数据源「" + name + "」?\n删除后不可恢复。")) return;
   setBusy(true);
   try {
-    const r = await api("delete_profile", info.profile_id);
+    const r = await api("delete_profile", pid);
     if (!r.ok) { toast(r.msg || "删除失败"); return; }
     applyState(r);
-    toast((side === "left" ? "左侧" : "右侧") + "已删除并断开");
+    toast((side === "left" ? "左侧" : "右侧") + "数据源已删除");
   } finally { setBusy(false); }
 }
 
@@ -371,7 +376,7 @@ function setBusy(b) {
   document.body.classList.toggle("loading", b);
 }
 
-/* ---------------- 同步数据表(结构) ---------------- */
+/* ---------------- 同步表(结构) ---------------- */
 
 function parseTables(text) {
   return text.split(/[\s,，;；\n]+/).map(s => s.trim()).filter(Boolean);
@@ -701,12 +706,14 @@ function bindPane(side) {
     }
     dd.classList.toggle("open");
   });
-  // 下拉里的编辑按钮
+  // 下拉里的操作按钮
   $("#dd-list-" + side).addEventListener("click", e => {
-    if (e.target.classList.contains("dd-edit")) {
+    const editBtn = e.target.closest(".dd-edit");
+    const deleteBtn = e.target.closest(".dd-delete");
+    if (editBtn) {
       e.stopPropagation();
       dd.classList.remove("open");
-      const pid = e.target.dataset.pid;
+      const pid = editBtn.dataset.pid;
       const p = S.profiles.find(x => x.id === pid);
       if (!p) return;
       // 如果该数据源已连接在当前侧, 先断开再编辑; 如果连在另一侧, 不动连接, 仅在当前侧填表单
@@ -719,6 +726,15 @@ function bindPane(side) {
       const btnCancel = $(".btn-cancel-edit", paneOf(side));
       if (btnCancel) btnCancel.style.display = "";
       setFormMsg(side, "仅保存不会中断当前连接；保存并连接成功后才会替换当前连接", "");
+      return;
+    }
+    if (deleteBtn) {
+      e.stopPropagation();
+      dd.classList.remove("open");
+      const pid = deleteBtn.dataset.pid;
+      const p = S.profiles.find(x => x.id === pid);
+      if (!p) return;
+      deleteProfile(side, pid, p.name || p.id);
     }
   });
   // 点其他地方关闭下拉
@@ -844,7 +860,7 @@ async function init() {
       setBusy(false);
     }
   }
-  // 默认选择「同步数据表」模式 (如果两侧都已连)
+  // 默认选择「同步表」模式 (如果两侧都已连)
   if (S.sides.left && S.sides.right && !S.mode) {
     S.mode = "struct";
     renderModes();

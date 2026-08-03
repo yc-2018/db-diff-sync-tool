@@ -56,4 +56,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert duplicate_result["ok"] is False
     assert "已存在" in duplicate_result["msg"]
 
+    deleted = api.delete_profile(saved["profile"]["id"])
+    assert deleted["ok"] is True
+    assert deleted["profiles"] == []
+    assert deleted["left"] is None and deleted["right"] is None
+    assert app.load_profiles() == []
+
 print("===== 连接配置独立保存测试通过 =====")

@@ -335,7 +335,8 @@ body {
 .dd-item:hover { background: #f1f5f9; }
 .dd-item .dd-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dd-item .dd-type { color: var(--text-dim); font-size: 11px; flex-shrink: 0; }
-.dd-item .dd-edit {
+.dd-item .dd-edit,
+.dd-item .dd-delete {
   flex-shrink: 0;
   padding: 2px 8px;
   font-size: 11px;
@@ -347,6 +348,12 @@ body {
   white-space: nowrap;
 }
 .dd-item .dd-edit:hover { background: #ede9fe; }
+.dd-item .dd-delete {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fef2f2;
+}
+.dd-item .dd-delete:hover { background: #fee2e2; }
 .dd-item.dd-new { color: var(--accent); font-weight: 600; justify-content: center; }
 
 /* ---------- 工作区 ---------- */

@@ -910,7 +910,7 @@ def diff_data(lmeta: TableMeta, lrows, rmeta: TableMeta, rrows, dialect: str):
     lcols = [c.name for c in lmeta.cols]
     rcols = [c.name for c in rmeta.cols]
     if {c.upper() for c in lcols} != {c.upper() for c in rcols}:
-        raise DBError("表 %s 两侧列不一致, 请先用「同步数据表」对齐结构后再比对数据" % lmeta.name)
+        raise DBError("表 %s 两侧列不一致, 请先用「同步表」对齐结构后再比对数据" % lmeta.name)
     li = {c.upper(): i for i, c in enumerate(lcols)}
     ri = {c.upper(): i for i, c in enumerate(rcols)}
     order = lcols                                   # 以左侧列顺序为准
