@@ -148,6 +148,47 @@ def main():
     assert "ADD COLUMN `EXTRA` NUMBER(5,2);" in joined_m
     assert "MODIFY COLUMN `NAME` VARCHAR2(100 CHAR) DEFAULT 'anon' NULL;" in joined_m
 
+    # 整表缺失时必须生成完整 Oracle DDL：索引、命名约束、表备注和列备注都不能丢。
+    full_oracle = dbcore.TableMeta(
+        "SJ_CARRIER_MINI_VISITOR",
+        [
+            dbcore.Col("ID", "NUMBER(19)", False, None, 1, "主键"),
+            dbcore.Col("APP_ID", "VARCHAR2(64)", False, None, 0, "微信小程序AppID"),
+            dbcore.Col("OPEN_ID", "VARCHAR2(128)", False, None, 0, "微信用户OpenID"),
+        ],
+        indexes=[dbcore.IndexMeta(
+            "UK_MINI_USER_APP_OPEN", ["APP_ID", "OPEN_ID"], unique=True)],
+        table_comment="承运商小程序游客记录表",
+        pk_name="PK_CARRIER_MINI_VISITOR",
+        pk_index_name="PK_CARRIER_MINI_USER",
+        unique_constraints=[dbcore.UniqueConstraintMeta(
+            "UK_MINI_VISITOR_APP_OPEN", ["APP_ID", "OPEN_ID"],
+            "UK_MINI_USER_APP_OPEN")],
+    )
+    full_o_sql = "\n".join(dbcore.diff_structure(full_oracle, None, "oracle"))
+    assert "CREATE UNIQUE INDEX PK_CARRIER_MINI_USER ON SJ_CARRIER_MINI_VISITOR (ID);" in full_o_sql
+    assert "CREATE UNIQUE INDEX UK_MINI_USER_APP_OPEN ON SJ_CARRIER_MINI_VISITOR (APP_ID, OPEN_ID);" in full_o_sql
+    assert ("ALTER TABLE SJ_CARRIER_MINI_VISITOR ADD CONSTRAINT PK_CARRIER_MINI_VISITOR "
+            "PRIMARY KEY (ID) USING INDEX PK_CARRIER_MINI_USER;") in full_o_sql
+    assert ("ALTER TABLE SJ_CARRIER_MINI_VISITOR ADD CONSTRAINT UK_MINI_VISITOR_APP_OPEN "
+            "UNIQUE (APP_ID, OPEN_ID) USING INDEX UK_MINI_USER_APP_OPEN;") in full_o_sql
+    assert "COMMENT ON TABLE SJ_CARRIER_MINI_VISITOR IS '承运商小程序游客记录表';" in full_o_sql
+    assert "COMMENT ON COLUMN SJ_CARRIER_MINI_VISITOR.ID IS '主键';" in full_o_sql
+
+    # MySQL / SQLite 的整表缺失分支也应带上已读取到的索引和备注。
+    full_mysql = dbcore.TableMeta(
+        "T_FULL",
+        [dbcore.Col("ID", "BIGINT", False, None, 1, "主键")],
+        indexes=[dbcore.IndexMeta("IDX_FULL_ID", ["ID"])],
+        table_comment="完整表",
+    )
+    full_m_sql = "\n".join(dbcore.diff_structure(full_mysql, None, "mysql"))
+    assert "CREATE INDEX `IDX_FULL_ID` ON `T_FULL` (`ID`);" in full_m_sql
+    assert "ALTER TABLE `T_FULL` COMMENT = '完整表';" in full_m_sql
+    assert "ALTER TABLE `T_FULL` MODIFY COLUMN `ID` BIGINT NOT NULL COMMENT '主键';" in full_m_sql
+    full_s_sql = "\n".join(dbcore.diff_structure(full_mysql, None, "sqlite"))
+    assert 'CREATE INDEX "IDX_FULL_ID" ON "T_FULL" ("ID");' in full_s_sql
+
     # Oracle 仅在可空性确实变化时输出 NULL / NOT NULL，避免默认值差异触发 ORA-01451
     default_src = dbcore.TableMeta("T", [dbcore.Col("CREATE_TIME", "DATE", True, "sysdate")])
     default_dst = dbcore.TableMeta("T", [dbcore.Col("CREATE_TIME", "DATE", True, None)])

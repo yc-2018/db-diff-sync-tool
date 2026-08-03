@@ -180,11 +180,22 @@ class IndexMeta:
 
 
 @dataclass
+class UniqueConstraintMeta:
+    """Oracle 唯一约束及其关联索引。"""
+    name: str
+    cols: list
+    index_name: str = ""
+
+
+@dataclass
 class TableMeta:
     name: str
     cols: list = field(default_factory=list)   # list[Col]
     indexes: list = field(default_factory=list)  # list[IndexMeta]
     table_comment: str = ""   # 表备注
+    pk_name: str = ""         # Oracle 主键约束名
+    pk_index_name: str = ""   # Oracle 主键约束使用的索引名
+    unique_constraints: list = field(default_factory=list)  # list[UniqueConstraintMeta]
 
     @property
     def pk_cols(self):
@@ -358,17 +369,33 @@ class OracleDB(BaseDB):
                     comment=cmt.get(name, ""),
                 ))
             cur.execute(
-                """SELECT cols.column_name, cols.position
+                """SELECT cons.constraint_name, cons.constraint_type, cons.index_name,
+                          cols.column_name, cols.position
                      FROM user_constraints cons
                      JOIN user_cons_columns cols
                        ON cons.constraint_name = cols.constraint_name
                       AND cons.table_name = cols.table_name
-                    WHERE cons.constraint_type = 'P' AND cons.table_name = :1
-                    ORDER BY cols.position""", [t])
-            for i, (cn, _pos) in enumerate(cur.fetchall(), 1):
-                c = next((x for x in cols if x.name == cn), None)
-                if c:
-                    c.pk = i
+                    WHERE cons.constraint_type IN ('P', 'U')
+                      AND cons.table_name = :1
+                    ORDER BY cons.constraint_type, cons.constraint_name, cols.position""", [t])
+            pk_name = ""
+            pk_index_name = ""
+            unique_map = {}
+            for cons_name, cons_type, index_name, col_name, pos in cur.fetchall():
+                if cons_type == "P":
+                    pk_name = cons_name or ""
+                    pk_index_name = index_name or ""
+                    c = next((x for x in cols if x.name == col_name), None)
+                    if c:
+                        c.pk = int(pos or 0)
+                else:
+                    item = unique_map.setdefault(
+                        cons_name, [cons_name, [], index_name or ""])
+                    item[1].append(col_name)
+            unique_constraints = [
+                UniqueConstraintMeta(name=n, cols=cl, index_name=idx)
+                for n, cl, idx in unique_map.values()
+            ]
             # 普通索引 (排除主键)
             indexes = []
             cur.execute(
@@ -396,7 +423,12 @@ class OracleDB(BaseDB):
             r = cur.fetchone()
             tbl_cmt = (r[0] or "") if r else ""
             cur.close()
-        return TableMeta(t, cols, indexes, tbl_cmt)
+        return TableMeta(
+            t, cols, indexes, tbl_cmt,
+            pk_name=pk_name,
+            pk_index_name=pk_index_name,
+            unique_constraints=unique_constraints,
+        )
 
 
 # ---------------------------------------------------------------- MySQL
@@ -612,13 +644,69 @@ def col_def(c: Col, dialect: str, for_modify=False, include_nullability=True) ->
     return " ".join(parts)
 
 
-def create_table_sql(meta: TableMeta, dialect: str) -> str:
+def create_table_sql(meta: TableMeta, dialect: str, include_pk=True) -> str:
     qn = meta.name if dialect == "oracle" else (("`%s`" % meta.name) if dialect == "mysql" else ('"%s"' % meta.name))
     lines = ["  " + col_def(c, dialect) for c in meta.cols]
-    if meta.pk_cols:
+    if include_pk and meta.pk_cols:
         pkq = ", ".join(pk if dialect == "oracle" else (("`%s`" % pk) if dialect == "mysql" else ('"%s"' % pk)) for pk in meta.pk_cols)
         lines.append("  PRIMARY KEY (%s)" % pkq)
     return "CREATE TABLE %s (\n%s\n);" % (qn, ",\n".join(lines))
+
+
+def create_full_table_sql(meta: TableMeta, dialect: str):
+    """生成缺表时的完整 DDL，包括索引、主键/唯一约束和备注。"""
+    if dialect == "oracle":
+        stmts = [create_table_sql(meta, dialect, include_pk=False)]
+        emitted_indexes = set()
+
+        if meta.pk_cols and meta.pk_index_name:
+            stmts.append(_create_index_sql(
+                meta.name,
+                IndexMeta(meta.pk_index_name, meta.pk_cols, unique=True),
+                dialect,
+            ))
+            emitted_indexes.add(meta.pk_index_name)
+
+        for idx in meta.indexes:
+            if idx.name not in emitted_indexes:
+                stmts.append(_create_index_sql(meta.name, idx, dialect))
+                emitted_indexes.add(idx.name)
+
+        # 正常情况下唯一约束的索引已包含在 meta.indexes 中；此处兼容缺失的元数据。
+        for cons in meta.unique_constraints:
+            if cons.index_name and cons.index_name not in emitted_indexes:
+                stmts.append(_create_index_sql(
+                    meta.name,
+                    IndexMeta(cons.index_name, cons.cols, unique=True),
+                    dialect,
+                ))
+                emitted_indexes.add(cons.index_name)
+
+        if meta.pk_cols:
+            stmts.append(_add_pk_constraint_sql(meta, dialect))
+        for cons in meta.unique_constraints:
+            stmts.append(_add_unique_constraint_sql(meta.name, cons, dialect))
+
+        if meta.table_comment:
+            stmts.append("COMMENT ON TABLE %s IS '%s';" %
+                         (meta.name, meta.table_comment.replace("'", "''")))
+        for c in meta.cols:
+            if c.comment:
+                stmts.append("COMMENT ON COLUMN %s.%s IS '%s';" %
+                             (meta.name, c.name, c.comment.replace("'", "''")))
+        return stmts
+
+    stmts = [create_table_sql(meta, dialect)]
+    stmts.extend(_create_index_sql(meta.name, idx, dialect) for idx in meta.indexes)
+    if dialect == "mysql":
+        if meta.table_comment:
+            stmts.append("ALTER TABLE `%s` COMMENT = '%s';" %
+                         (meta.name, meta.table_comment.replace("'", "''")))
+        for c in meta.cols:
+            if c.comment:
+                stmts.append("ALTER TABLE `%s` MODIFY COLUMN %s COMMENT '%s';" %
+                             (meta.name, col_def(c, "mysql"), c.comment.replace("'", "''")))
+    return stmts
 
 
 def _drop_table_sql(name, dialect):
@@ -651,8 +739,8 @@ def diff_structure(src: TableMeta | None, dst: TableMeta | None, dialect: str):
         return ["-- 警告: 该表仅存在于本侧, 对侧没有; 以下语句会删除本侧这张表(请确认后再执行)",
                 _drop_table_sql(dst.name, dialect)]
     if dst is None:
-        return ["-- 本侧缺少该表, 以下为完整建表语句",
-                create_table_sql(src, dialect)]
+        return ["-- 本侧缺少该表, 以下为完整建表语句（含索引、主键/唯一约束和备注）"] + \
+            create_full_table_sql(src, dialect)
 
     src_cols = {c.name: c for c in src.cols}
     dst_cols = {c.name: c for c in dst.cols}
@@ -768,6 +856,23 @@ def _add_pk_sql(t, pk_cols, dialect):
     if dialect == "oracle":
         return "ALTER TABLE %s ADD PRIMARY KEY (%s);" % (t, ", ".join(pk_cols))
     return "ALTER TABLE `%s` ADD PRIMARY KEY (%s);" % (t, ", ".join("`%s`" % c for c in pk_cols))
+
+
+def _add_pk_constraint_sql(meta: TableMeta, dialect: str):
+    if dialect != "oracle" or not meta.pk_name:
+        return _add_pk_sql(meta.name, meta.pk_cols, dialect)
+    using_index = " USING INDEX %s" % meta.pk_index_name if meta.pk_index_name else ""
+    return "ALTER TABLE %s ADD CONSTRAINT %s PRIMARY KEY (%s)%s;" % (
+        meta.name, meta.pk_name, ", ".join(meta.pk_cols), using_index)
+
+
+def _add_unique_constraint_sql(table: str, cons: UniqueConstraintMeta, dialect: str):
+    if dialect == "oracle":
+        using_index = " USING INDEX %s" % cons.index_name if cons.index_name else ""
+        return "ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s)%s;" % (
+            table, cons.name, ", ".join(cons.cols), using_index)
+    cols = ", ".join("`%s`" % c for c in cons.cols)
+    return "ALTER TABLE `%s` ADD CONSTRAINT `%s` UNIQUE (%s);" % (table, cons.name, cols)
 
 
 def _drop_index_sql(table, idx_name, dialect):
