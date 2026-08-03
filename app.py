@@ -23,6 +23,7 @@ APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
 STORE_FILE = STORE_DIR / "connections.json"
 SESSION_FILE = STORE_DIR / "session.json"
+WEBVIEW_STORAGE_DIR = STORE_DIR / "webview"
 
 
 # ------------------------------------------------------------ 配置持久化
@@ -432,9 +433,9 @@ class Api:
         if lm is None and rm is None:
             raise dbcore.DBError("两侧数据库都不存在表 %s" % t)
         if lm is None:
-            raise dbcore.DBError("左侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
+            raise dbcore.DBError("左侧不存在表 %s, 无法进行数据比对(可先做结构对比)" % t)
         if rm is None:
-            raise dbcore.DBError("右侧不存在表 %s, 无法进行数据比对(可先做结构同步)" % t)
+            raise dbcore.DBError("右侧不存在表 %s, 无法进行数据比对(可先做结构对比)" % t)
         return L, R, dialect, t, w, lm, rm
 
     def preview_data_compare(self, table, where=""):
@@ -505,10 +506,11 @@ class Api:
 
 def main():
     import webview
+    WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     api = Api()
     html = str(BASE_DIR / "web" / "index.html")
     win = webview.create_window(
-        "数据库同步比对工具", html, js_api=api,
+        "数据库对比工具", html, js_api=api,
         width=1320, height=860, min_size=(1080, 720),
         text_select=True)
     if os.environ.get("DBSYNC_SMOKE"):
@@ -519,7 +521,12 @@ def main():
             except Exception:
                 pass
         threading.Thread(target=closer, daemon=True).start()
-    webview.start(debug=False, icon=str(APP_ICON))
+    webview.start(
+        debug=False,
+        private_mode=False,
+        storage_path=str(WEBVIEW_STORAGE_DIR),
+        icon=str(APP_ICON),
+    )
 
 
 if __name__ == "__main__":

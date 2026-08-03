@@ -6,10 +6,17 @@ const S = {
   profiles: [],
   sides: { left: null, right: null },   // {profile_id, name, type, type_name}
   tables: { left: [], right: [] },
+  structHistory: [],
+  dataHistory: [],
   tableListRequest: 0,
   mode: null,                            // 'struct' | 'data'
   busy: false,
 };
+
+const STRUCT_HISTORY_KEY = "dbsync.structCompareHistory.v1";
+const STRUCT_HISTORY_LIMIT = 20;
+const DATA_HISTORY_KEY = "dbsync.dataCompareHistory.v1";
+const DATA_HISTORY_LIMIT = 20;
 
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
@@ -19,6 +26,15 @@ function esc(s) {
     c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function sideName(side) {
+  return (S.sides[side] && S.sides[side].name) ? S.sides[side].name : "";
+}
+
+function onlySideText(side) {
+  const name = sideName(side);
+  if (side === "right") return "仅右侧 →" + (name ? " " + name : "");
+  return "← 仅左侧";
+}
 
 function toast(msg, ms) {
   const t = $("#toast");
@@ -34,6 +50,100 @@ async function api(method, ...args) {
 }
 
 /* ---------------- 表单读写 ---------------- */
+
+function loadStructHistory() {
+  try {
+    const raw = localStorage.getItem(STRUCT_HISTORY_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    S.structHistory = Array.isArray(rows)
+      ? rows.map(item => Array.isArray(item) ? item : item && item.tables)
+          .filter(Array.isArray)
+          .map(tables => tables.map(x => String(x || "").trim()).filter(Boolean))
+          .filter(tables => tables.length)
+          .slice(0, STRUCT_HISTORY_LIMIT)
+      : [];
+  } catch (_e) {
+    S.structHistory = [];
+  }
+}
+
+function saveStructHistory() {
+  try {
+    localStorage.setItem(STRUCT_HISTORY_KEY, JSON.stringify(S.structHistory));
+  } catch (_e) {
+    // 本地存储不可用时不影响正常比对
+  }
+}
+
+function rememberStructHistory(tables) {
+  const clean = tables.map(x => String(x || "").trim()).filter(Boolean);
+  if (!clean.length) return;
+  const key = clean.join("\n").toLocaleLowerCase();
+  S.structHistory = [
+    clean,
+    ...S.structHistory.filter(item => item.join("\n").toLocaleLowerCase() !== key),
+  ].slice(0, STRUCT_HISTORY_LIMIT);
+  saveStructHistory();
+}
+
+function removeStructHistory(index) {
+  S.structHistory.splice(index, 1);
+  saveStructHistory();
+}
+
+function clearStructHistory() {
+  S.structHistory = [];
+  saveStructHistory();
+}
+
+function loadDataHistory() {
+  try {
+    const raw = localStorage.getItem(DATA_HISTORY_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    S.dataHistory = Array.isArray(rows)
+      ? rows.map(item => ({
+          table: String(item && item.table || "").trim(),
+          where: String(item && item.where || "").trim(),
+        }))
+          .filter(item => item.table)
+          .slice(0, DATA_HISTORY_LIMIT)
+      : [];
+  } catch (_e) {
+    S.dataHistory = [];
+  }
+}
+
+function saveDataHistory() {
+  try {
+    localStorage.setItem(DATA_HISTORY_KEY, JSON.stringify(S.dataHistory));
+  } catch (_e) {
+    // 本地存储不可用时不影响正常比对
+  }
+}
+
+function rememberDataHistory(table, where) {
+  const clean = {
+    table: String(table || "").trim(),
+    where: String(where || "").trim(),
+  };
+  if (!clean.table) return;
+  const key = clean.table.toLocaleLowerCase() + "\n" + clean.where;
+  S.dataHistory = [
+    clean,
+    ...S.dataHistory.filter(item => item.table.toLocaleLowerCase() + "\n" + item.where !== key),
+  ].slice(0, DATA_HISTORY_LIMIT);
+  saveDataHistory();
+}
+
+function removeDataHistory(index) {
+  S.dataHistory.splice(index, 1);
+  saveDataHistory();
+}
+
+function clearDataHistory() {
+  S.dataHistory = [];
+  saveDataHistory();
+}
 
 function paneOf(side) { return $("#pane-" + side); }
 
@@ -417,7 +527,9 @@ function tableCatalog() {
 
 function tableAvailability(table) {
   if (table.left && table.right) return { text: "两侧", cls: "both" };
-  return table.left ? { text: "← 仅左", cls: "left" } : { text: "仅右 →", cls: "right" };
+  return table.left
+    ? { text: onlySideText("left"), cls: "left" }
+    : { text: onlySideText("right"), cls: "right" };
 }
 
 function closeTablePickers(except) {
@@ -498,6 +610,84 @@ function renderTableMenu(picker) {
     options.appendChild(option);
   }
   menu.appendChild(options);
+
+  if (mode === "struct" && S.structHistory.length && !query) {
+    const history = document.createElement("div");
+    history.className = "table-history";
+    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div>';
+    const historyList = $(".table-history-list", history);
+    $(".table-history-clear", history).addEventListener("click", () => {
+      clearStructHistory();
+      renderTableMenu(picker);
+    });
+    S.structHistory.forEach((tables, index) => {
+      const row = document.createElement("div");
+      row.className = "table-history-row";
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "table-history-item";
+      item.textContent = tables.join(", ");
+      item.title = item.textContent;
+      item.addEventListener("click", () => {
+        syncTableInputs(".table-input", tables.join(", "));
+        renderTableMenu(picker);
+        const search = $(".table-menu-search", picker);
+        if (search) search.focus({ preventScroll: true });
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "table-history-remove";
+      remove.textContent = "×";
+      remove.title = "删除此条历史";
+      remove.setAttribute("aria-label", `删除最近对比：${item.textContent}`);
+      remove.addEventListener("click", () => {
+        removeStructHistory(index);
+        renderTableMenu(picker);
+      });
+      row.append(item, remove);
+      historyList.appendChild(row);
+    });
+    menu.appendChild(history);
+  }
+
+  if (mode === "data" && S.dataHistory.length && !query) {
+    const history = document.createElement("div");
+    history.className = "table-history";
+    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div>';
+    const historyList = $(".table-history-list", history);
+    $(".table-history-clear", history).addEventListener("click", () => {
+      clearDataHistory();
+      renderTableMenu(picker);
+    });
+    S.dataHistory.forEach((entry, index) => {
+      const row = document.createElement("div");
+      row.className = "table-history-row";
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "table-history-item";
+      item.textContent = `${entry.table} · ${entry.where ? "WHERE " + entry.where : "无 WHERE"}`;
+      item.title = item.textContent;
+      item.addEventListener("click", () => {
+        syncTableInputs(".data-table-input", entry.table);
+        $(".data-where-input", $("#shared-where")).value = entry.where;
+        picker.dataset.filter = "";
+        closeTablePickers();
+      });
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "table-history-remove";
+      remove.textContent = "×";
+      remove.title = "删除此条历史";
+      remove.setAttribute("aria-label", `删除最近对比：${item.textContent}`);
+      remove.addEventListener("click", () => {
+        removeDataHistory(index);
+        renderTableMenu(picker);
+      });
+      row.append(item, remove);
+      historyList.appendChild(row);
+    });
+    menu.appendChild(history);
+  }
 }
 
 function openTablePicker(picker, focusSearch) {
@@ -565,18 +755,25 @@ async function doCompareStruct() {
   try {
     const r = await api("compare_structure", tables);
     if (!r.ok) { toast(r.msg || "比对失败", 3500); return; }
+    rememberStructHistory(tables);
     renderStructResults(r);
   } finally {
     setBusy(false);
   }
 }
 
-const STATUS_TXT = {
-  same: "一致", diff: "有差异", only_left: "← 仅左侧", only_right: "仅右侧 →", missing_both: "两侧均无",
-};
 const STATUS_CLS = {
   same: "st-same", diff: "st-diff", only_left: "st-only", only_right: "st-only", missing_both: "st-missing",
 };
+
+function statusText(status) {
+  if (status === "only_left") return onlySideText("left");
+  if (status === "only_right") return onlySideText("right");
+  if (status === "same") return "一致";
+  if (status === "diff") return "有差异";
+  if (status === "missing_both") return "两侧均无";
+  return status;
+}
 
 function renderStructResults(r) {
   for (const side of SIDES) {
@@ -585,7 +782,7 @@ function renderStructResults(r) {
     area.innerHTML = r.results.map(t => `
       <div class="tcard ${STATUS_CLS[t.status] || ""}">
         <span class="tname">${esc(t.table)}</span>
-        <span class="tstatus">${STATUS_TXT[t.status] || t.status}</span>
+        <span class="tstatus">${esc(statusText(t.status))}</span>
         ${t.details.length ? "<ul>" + t.details.map(d => `<li>${esc(d)}</li>`).join("") + "</ul>" : ""}
       </div>`).join("");
   }
@@ -629,6 +826,7 @@ async function doCompareData() {
     }
     const r = await api("compare_data", t, where);
     if (!r.ok) { toast(r.msg || "比对失败", 4000); return; }
+    rememberDataHistory(t, where);
     renderDataResults(r);
   } finally {
     setBusy(false);
@@ -636,8 +834,8 @@ async function doCompareData() {
 }
 
 function kindTag(kind) {
-  if (kind === "only_left") return '<span class="tag tag-only_left">← 仅左侧</span>';
-  if (kind === "only_right") return '<span class="tag tag-only_right">仅右侧 →</span>';
+  if (kind === "only_left") return `<span class="tag tag-only_left">${esc(onlySideText("left"))}</span>`;
+  if (kind === "only_right") return `<span class="tag tag-only_right">${esc(onlySideText("right"))}</span>`;
   return '<span class="tag tag-diff">内容不同</span>';
 }
 
@@ -655,8 +853,8 @@ function renderDataResults(r) {
       <span>表 <b>${esc(r.table)}</b></span>
       <span class="sg-l">左侧 <b>${r.left_count}</b> 行</span>
       <span class="sg-r">右侧 <b>${r.right_count}</b> 行</span>
-      <span>← 仅左侧 <b>${r.only_left}</b></span>
-      <span>仅右侧 → <b>${r.only_right}</b></span>
+      <span>${esc(onlySideText("left"))} <b>${r.only_left}</b></span>
+      <span>${esc(onlySideText("right"))} <b>${r.only_right}</b></span>
       <span>内容不同 <b>${r.updated}</b></span>
       ${r.no_pk ? '<span style="color:var(--err)">⚠ 无主键, 仅识别多/少行</span>' : ""}
     </div>
@@ -857,6 +1055,8 @@ function setMode(m) {
 }
 
 async function init() {
+  loadStructHistory();
+  loadDataHistory();
   for (const side of SIDES) bindPane(side);
   bindTablePicker("struct");
   bindTablePicker("data");
