@@ -155,23 +155,27 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 
 ### Oracle 11g 依赖打包
 
-Oracle 11g 需要 `python-oracledb` 的 thick mode。本项目当前随包使用的 Instant Client 21.22
-已在现有 Oracle 11g 环境中实测可完成连接和本工具所需的常规查询，但 Oracle 官方兼容矩阵并未将
-Client 21 列为所有 11g 版本的认证组合；这属于当前环境实测可用，不代表官方保证所有 11g 环境兼容。
-打包脚本会自动检查并打包下面目录：
+连接 Oracle 11.2 时需要 `python-oracledb` 的 thick mode。Oracle Instant Client 19c 是 Oracle
+官方支持连接 Oracle 11.2 及更高版本的客户端组合。打包脚本会自动检查并打包
+`.oracle_client` 下任一包含 `oci.dll` 的 `instantclient_*` 目录，例如：
 
 ```text
-.oracle_client\instantclient_21_22\oci.dll
+.oracle_client\instantclient_19_31\oci.dll
 ```
 
 使用方式：
 
 1. 下载并解压与目标数据库兼容的 Oracle Instant Client for Windows x64（Basic 或 Basic Light）。
-2. 在项目根目录新建 `.oracle_client\instantclient_21_22\`。
+2. 在项目根目录新建 `.oracle_client\instantclient_19_31\`（目录名也可为其他 `instantclient_*`）。
 3. 将解压后的 `oci.dll`、`oraociei*.dll` / `oraociicus*.dll`、`oraons.dll`、`network\admin`（如有 `tnsnames.ora`）等文件放入该目录。
 4. 运行 `打包.bat`。脚本会把该目录打进 exe 产物，运行时会优先从打包目录初始化 Oracle thick mode。
 
-如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。连接 Oracle 11g 这类需要 thick mode 的旧版本时必须携带客户端。若要求 Oracle 官方认证的 11g 兼容组合，应按目标数据库的准确版本选择客户端；不要仅依据本项目对 21.22 的单一环境实测结果。
+如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。
+
+GitHub Actions 每次推送会发布两个 Windows x64 ZIP：
+
+- `db-sync-tool-windows-x64-thin-*.zip`：未携带 Instant Client，适合 Oracle 12.1+、MySQL 和 SQLite。
+- `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，适合 Oracle 11.2+、MySQL 和 SQLite。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
@@ -185,6 +189,7 @@ Client 21 列为所有 11g 版本的认证组合；这属于当前环境实测�
 
 ## 变更日志
 
+- 2026-08-04（v2.0.5）：GitHub Actions 同时发布 Oracle thin mode 和内置 Instant Client 19c 的 Oracle 11g（11.2+）兼容包；本地打包与运行时自动识别 `.oracle_client\instantclient_*`。
 - 2026-08-04（v2.0.4）：启动前清理 WebView 网页资源缓存并保留 Local Storage，修复窗口标题已更新但结构比对页面仍执行旧脚本、单侧颜色不生效的问题。
 - 2026-08-04（v2.0.3）：修复 Oracle 列默认值中的 SQL 注释导致生成的 `ALTER TABLE ... MODIFY` 右括号被注释的问题；结构比对明细改为由后端明确标记单侧归属，本侧存在显示浅蓝色，本侧缺失显示浅红色。
 - 2026-07-31：修复 Python 3.14 下 venv 无法启动的问题（cffi 缺失预编译 wheel → pythonnet → pywebview WinForms 后端整条链断掉）。`初始化环境.bat` 改为优先用本机 Python 3.12 绝对路径重建 venv；README 新增环境要求与常见启动问题排查章节。

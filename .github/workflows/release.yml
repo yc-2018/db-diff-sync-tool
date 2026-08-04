@@ -11,6 +11,9 @@ permissions:
 env:
   PYTHONUTF8: "1"
   PYTHONIOENCODING: "utf-8"
+  ORACLE_INSTANT_CLIENT_URL: https://download.oracle.com/otn_software/nt/instantclient/1931000/instantclient-basic-windows.x64-19.31.0.0.0dbru.zip
+  ORACLE_INSTANT_CLIENT_SHA256: 9e990e02e936fe073f05b7cb9bb95bd5163372083826e9321a9d85bff88e829d
+  ORACLE_INSTANT_CLIENT_DIR: .oracle_client\instantclient_19_31
 
 concurrency:
   group: release-${{ github.ref }}
@@ -19,7 +22,7 @@ concurrency:
 jobs:
   build-and-release:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout source
@@ -45,44 +48,56 @@ jobs:
           python tests/test_urls.py
           python tests/test_profiles.py
 
-      - name: Build Windows application
+      - name: Build Windows thin-mode application
         shell: pwsh
         run: |
-          $arguments = @(
-            "--noconfirm"
-            "--clean"
-            "--windowed"
-            "--name", "数据库同步比对工具"
-            "--icon", "web\app-icon.ico"
-            "--collect-all", "oracledb"
-            "--add-data", "web;web"
-          )
+          python package_windows.py `
+            --app-name "数据库同步比对工具-thin" `
+            --skip-oracle-client
 
-          $oracleClient = ".oracle_client\instantclient_21_22"
-          if (Test-Path "$oracleClient\oci.dll") {
-            $arguments += @(
-              "--add-data", "$oracleClient;.oracle_client\instantclient_21_22"
-            )
+      - name: Download Oracle Instant Client 19c for Oracle 11g package
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "instantclient-basic-windows.x64-19.31.zip"
+          Invoke-WebRequest -Uri $env:ORACLE_INSTANT_CLIENT_URL -OutFile $archive
+          $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:ORACLE_INSTANT_CLIENT_SHA256) {
+            throw "Oracle Instant Client checksum mismatch: $actualHash"
+          }
+          New-Item -ItemType Directory -Path ".oracle_client" -Force | Out-Null
+          Expand-Archive -Path $archive -DestinationPath ".oracle_client" -Force
+          if (-not (Test-Path "$env:ORACLE_INSTANT_CLIENT_DIR\oci.dll")) {
+            throw "Oracle Instant Client extraction did not produce oci.dll."
           }
 
-          $arguments += "app.py"
-          pyinstaller @arguments
+      - name: Build Windows Oracle 11g-compatible application
+        shell: pwsh
+        run: |
+          python package_windows.py `
+            --app-name "数据库同步比对工具-Oracle11g" `
+            --oracle-client-dir $env:ORACLE_INSTANT_CLIENT_DIR `
+            --require-oracle-client
 
-      - name: Create release archive
+      - name: Create release archives
         id: package
         shell: pwsh
         run: |
           $shortSha = "${{ github.sha }}".Substring(0, 7)
-          $archive = "db-sync-tool-windows-x64-$shortSha.zip"
-          Compress-Archive -Path "dist\数据库同步比对工具\*" -DestinationPath $archive
-          "archive=$archive" >> $env:GITHUB_OUTPUT
+          $thinArchive = "db-sync-tool-windows-x64-thin-$shortSha.zip"
+          $oracle11gArchive = "db-sync-tool-windows-x64-oracle11g-$shortSha.zip"
+          Compress-Archive -Path "dist\数据库同步比对工具-thin\*" -DestinationPath $thinArchive
+          Compress-Archive -Path "dist\数据库同步比对工具-Oracle11g\*" -DestinationPath $oracle11gArchive
+          "thin_archive=$thinArchive" >> $env:GITHUB_OUTPUT
+          "oracle11g_archive=$oracle11gArchive" >> $env:GITHUB_OUTPUT
           "tag=build-${{ github.sha }}" >> $env:GITHUB_OUTPUT
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: db-sync-tool-windows-x64-${{ github.sha }}
-          path: ${{ steps.package.outputs.archive }}
+          path: |
+            ${{ steps.package.outputs.thin_archive }}
+            ${{ steps.package.outputs.oracle11g_archive }}
           if-no-files-found: error
           retention-days: 30
 
@@ -91,7 +106,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.package.outputs.tag }}
-          RELEASE_ARCHIVE: ${{ steps.package.outputs.archive }}
+          THIN_ARCHIVE: ${{ steps.package.outputs.thin_archive }}
+          ORACLE11G_ARCHIVE: ${{ steps.package.outputs.oracle11g_archive }}
         run: |
           $title = "自动构建 ${{ github.ref_name }}@${{ github.sha }}"
           $notes = @"
@@ -100,15 +116,16 @@ jobs:
           - 分支：${{ github.ref_name }}
           - 提交：${{ github.sha }}
           - 平台：Windows x64
-          - Oracle 模式：默认使用 thin mode，发布环境未配置 Instant Client 时不支持 Oracle 11g
+          - `db-sync-tool-windows-x64-thin-*.zip`：未配置 Instant Client，使用 Oracle thin mode。
+          - `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，使用 thick mode，可连接 Oracle 11.2 及更高版本。
           "@
 
           gh release view $env:RELEASE_TAG 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG $env:RELEASE_ARCHIVE --clobber
+            gh release upload $env:RELEASE_TAG $env:THIN_ARCHIVE $env:ORACLE11G_ARCHIVE --clobber
             gh release edit $env:RELEASE_TAG --title $title --notes $notes --prerelease
           } else {
-            gh release create $env:RELEASE_TAG $env:RELEASE_ARCHIVE `
+            gh release create $env:RELEASE_TAG $env:THIN_ARCHIVE $env:ORACLE11G_ARCHIVE `
               --target "${{ github.sha }}" `
               --title $title `
               --notes $notes `

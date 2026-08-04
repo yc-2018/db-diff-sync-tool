@@ -24,7 +24,7 @@ from urllib.parse import unquote, urlsplit
 # 因此运行时同时检查源码目录、临时解包目录和 exe 所在目录。
 # 如果没有随包放置 Instant Client，不主动初始化 thick mode，
 # 让 python-oracledb 保持默认 thin mode；较新的 Oracle 不需要额外依赖。
-_ORACLE_CLIENT_SUBDIR = os.path.join(".oracle_client", "instantclient_21_22")
+_ORACLE_CLIENT_ROOT = ".oracle_client"
 _oracle_thick_initialized = False
 
 
@@ -43,7 +43,22 @@ def _runtime_base_dirs():
 
 
 def _oracle_client_dirs():
-    return [os.path.join(base, _ORACLE_CLIENT_SUBDIR) for base in _runtime_base_dirs()]
+    dirs = []
+    for base in _runtime_base_dirs():
+        root = os.path.join(base, _ORACLE_CLIENT_ROOT)
+        try:
+            children = sorted(os.listdir(root))
+        except OSError:
+            continue
+        for child in children:
+            client_dir = os.path.join(root, child)
+            if (
+                child.startswith("instantclient_")
+                and os.path.isfile(os.path.join(client_dir, "oci.dll"))
+                and client_dir not in dirs
+            ):
+                dirs.append(client_dir)
+    return dirs
 
 
 def _init_oracle_thick():
