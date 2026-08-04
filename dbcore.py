@@ -215,10 +215,57 @@ def norm_type(t: str) -> str:
     return re.sub(r"\s+", " ", (t or "").strip().upper())
 
 
+def _strip_sql_comments(text: str) -> str:
+    """移除字符串字面量之外的 SQL 注释，避免注释吞掉后续生成的 DDL。"""
+    out = []
+    i = 0
+    quote = None
+    pairs = {"[": "]", "{": "}", "(": ")", "<": ">"}
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            out.append(ch)
+            if ch == quote:
+                if i + 1 < len(text) and text[i + 1] == quote:
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch in ("q", "Q") and i + 2 < len(text) and text[i + 1] == "'":
+            opener = text[i + 2]
+            closer = pairs.get(opener, opener)
+            end = text.find(closer + "'", i + 3)
+            if end >= 0:
+                out.append(text[i:end + 2])
+                i = end + 2
+                continue
+        if text.startswith("--", i):
+            i += 2
+            while i < len(text) and text[i] not in "\r\n":
+                i += 1
+            out.append(" ")
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = len(text) if end < 0 else end + 2
+            out.append(" ")
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def norm_default(d):
     if d is None:
         return None
-    d = str(d).strip().rstrip(";").strip()
+    d = _strip_sql_comments(str(d)).strip().rstrip(";").strip()
     return d if d else None
 
 
@@ -634,8 +681,9 @@ def col_def(c: Col, dialect: str, for_modify=False, include_nullability=True) ->
     q = "`" if dialect == "mysql" else ('"' if dialect == "sqlite" else "")
     name = "%s%s%s" % (q, c.name, q) if q else c.name
     parts = [name, c.type]
-    if c.default is not None:
-        parts.append("DEFAULT %s" % c.default)
+    default = norm_default(c.default)
+    if default is not None:
+        parts.append("DEFAULT %s" % default)
     if include_nullability:
         if not c.nullable:
             parts.append("NOT NULL")
@@ -946,6 +994,16 @@ def structure_report(lmeta: TableMeta | None, rmeta: TableMeta | None):
             details.append("仅右侧有索引 %s (%s, 列: %s)"
                            % (n, "唯一" if idx.unique else "非唯一", ", ".join(idx.cols)))
     return ("same" if not details else "diff"), details
+
+
+def structure_detail_side(detail) -> str:
+    """返回结构差异明细实际存在的一侧；普通双侧差异返回空字符串。"""
+    text = str(detail or "").strip()
+    if text.startswith(("仅左侧有", "仅左侧存在")):
+        return "left"
+    if text.startswith(("仅右侧有", "仅右侧存在")):
+        return "right"
+    return ""
 
 
 # ---------------------------------------------------------------- 数据比对

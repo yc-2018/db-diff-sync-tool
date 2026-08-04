@@ -775,15 +775,44 @@ function statusText(status) {
   return status;
 }
 
+function sideOnlyClass(side, presentSide) {
+  if (!presentSide) return "";
+  return side === presentSide ? "side-present" : "side-missing";
+}
+
+function sideOnlyStyle(side, presentSide, card = false) {
+  if (!presentSide) return "";
+  if (side === presentSide) {
+    return card
+      ? "background:#eff6ff;border-left-color:#60a5fa;"
+      : "background:#eff6ff;color:#1d4ed8;";
+  }
+  return card
+    ? "background:#fff1f2;border-left-color:#fda4af;"
+    : "background:#fff1f2;color:#dc2626;";
+}
+
+function detailSide(detail) {
+  const text = String(detail || "").trim();
+  if (text.startsWith("仅左侧有")) return "left";
+  if (text.startsWith("仅右侧有")) return "right";
+  return "";
+}
+
 function renderStructResults(r) {
   for (const side of SIDES) {
     const area = $(".result-area", paneOf(side));
     if (!r.results.length) { area.innerHTML = '<div class="result-empty">无结果</div>'; continue; }
     area.innerHTML = r.results.map(t => `
-      <div class="tcard ${STATUS_CLS[t.status] || ""}">
+      <div class="tcard ${STATUS_CLS[t.status] || ""} ${sideOnlyClass(side, t.status === "only_left" ? "left" : t.status === "only_right" ? "right" : "")}" style="${sideOnlyStyle(side, t.status === "only_left" ? "left" : t.status === "only_right" ? "right" : "", true)}">
         <span class="tname">${esc(t.table)}</span>
         <span class="tstatus">${esc(statusText(t.status))}</span>
-        ${t.details.length ? "<ul>" + t.details.map(d => `<li>${esc(d)}</li>`).join("") + "</ul>" : ""}
+        ${t.details.length ? "<ul>" + t.details.map((d, index) => {
+          const detailSideName = Array.isArray(t.detail_sides)
+            ? (t.detail_sides[index] || "")
+            : detailSide(d);
+          return `<li class="${sideOnlyClass(side, detailSideName)}" style="${sideOnlyStyle(side, detailSideName)}">${esc(d)}</li>`;
+        }).join("") + "</ul>" : ""}
       </div>`).join("");
   }
   $(".sql-output", paneOf("left")).value = r.left_sql;

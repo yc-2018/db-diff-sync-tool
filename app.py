@@ -10,6 +10,7 @@ import base64
 import datetime
 import json
 import os
+import shutil
 import sys
 import threading
 import time
@@ -19,11 +20,34 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
+APP_VERSION = "2.0.4"
+APP_TITLE = "数据库对比工具 v%s" % APP_VERSION
 APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
 STORE_FILE = STORE_DIR / "connections.json"
 SESSION_FILE = STORE_DIR / "session.json"
 WEBVIEW_STORAGE_DIR = STORE_DIR / "webview"
+WEBVIEW_ASSET_CACHE_DIRS = (
+    Path("EBWebView") / "Default" / "Cache",
+    Path("EBWebView") / "Default" / "Code Cache",
+    Path("EBWebView") / "Default" / "Service Worker" / "CacheStorage",
+)
+
+
+def clear_webview_asset_cache(storage_dir=WEBVIEW_STORAGE_DIR):
+    """清理网页资源缓存，同时保留 Local Storage 中的比对历史。"""
+    root = Path(storage_dir).resolve()
+    for relative in WEBVIEW_ASSET_CACHE_DIRS:
+        target = (root / relative).resolve()
+        if root not in target.parents:
+            continue
+        try:
+            shutil.rmtree(target)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # 同一工具已有窗口运行时缓存文件可能被占用，不阻止新窗口启动。
+            pass
 
 
 # ------------------------------------------------------------ 配置持久化
@@ -383,7 +407,12 @@ class Api:
                 lm = L["db"].table_meta(t)
                 rm = R["db"].table_meta(t)
                 status, details = dbcore.structure_report(lm, rm)
-                results.append({"table": t, "status": status, "details": details})
+                results.append({
+                    "table": t,
+                    "status": status,
+                    "details": details,
+                    "detail_sides": [dbcore.structure_detail_side(d) for d in details],
+                })
                 if status == "missing_both":
                     continue
                 l_sql = dbcore.diff_structure(rm, lm, dialect)   # 让左侧变成右侧
@@ -506,11 +535,12 @@ class Api:
 
 def main():
     import webview
+    clear_webview_asset_cache()
     WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     api = Api()
     html = str(BASE_DIR / "web" / "index.html")
     win = webview.create_window(
-        "数据库对比工具", html, js_api=api,
+        APP_TITLE, html, js_api=api,
         width=1320, height=860, min_size=(1080, 720),
         text_select=True)
     if os.environ.get("DBSYNC_SMOKE"):

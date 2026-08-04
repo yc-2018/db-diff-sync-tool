@@ -10,8 +10,10 @@ import os
 import sqlite3
 import sys
 import tempfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import app  # noqa: E402
 import dbcore  # noqa: E402
 
 TABLES = ["T1", "T2", "T3"]
@@ -72,6 +74,20 @@ def check_all_same(ldb, rdb, tag):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="dbsync_test_")
+
+    # 启动时只清理 WebView 网页资源缓存，不能删除保存比对历史的 Local Storage。
+    webview_storage = Path(tmp) / "webview"
+    for relative in app.WEBVIEW_ASSET_CACHE_DIRS:
+        cache_file = webview_storage / relative / "cached-file"
+        cache_file.parent.mkdir(parents=True, exist_ok=True)
+        cache_file.write_text("cached", encoding="utf-8")
+    history_file = webview_storage / "EBWebView" / "Default" / "Local Storage" / "history"
+    history_file.parent.mkdir(parents=True, exist_ok=True)
+    history_file.write_text("keep", encoding="utf-8")
+    app.clear_webview_asset_cache(webview_storage)
+    assert all(not (webview_storage / relative).exists()
+               for relative in app.WEBVIEW_ASSET_CACHE_DIRS)
+    assert history_file.read_text(encoding="utf-8") == "keep"
 
     # ---------- 第一轮: 只执行左侧修复SQL(左侧变成右侧) ----------
     ldb, rdb = make_pair(tmp)
@@ -195,6 +211,23 @@ def main():
     assert dbcore.diff_structure(default_src, default_dst, "oracle") == [
         "ALTER TABLE T MODIFY (CREATE_TIME DATE DEFAULT sysdate);"
     ]
+    commented_default_src = dbcore.TableMeta(
+        "SJ_CARRIER_RECRUIT",
+        [dbcore.Col("UPDATE_TIME", "DATE", True, "sysdate       -- 更新时间")],
+    )
+    commented_default_dst = dbcore.TableMeta(
+        "SJ_CARRIER_RECRUIT",
+        [dbcore.Col("UPDATE_TIME", "DATE", True, None)],
+    )
+    assert dbcore.diff_structure(commented_default_src, commented_default_dst, "oracle") == [
+        "ALTER TABLE SJ_CARRIER_RECRUIT MODIFY (UPDATE_TIME DATE DEFAULT sysdate);"
+    ]
+    assert dbcore.norm_default("'A--B'") == "'A--B'"
+    assert dbcore.norm_default("q'[A--B]'") == "q'[A--B]'"
+    assert dbcore.norm_default("sysdate /* 更新时间 */") == "sysdate"
+    assert dbcore.structure_detail_side("仅左侧有列 COL_LEFT (NUMBER)") == "left"
+    assert dbcore.structure_detail_side("仅右侧有索引 IDX_RIGHT") == "right"
+    assert dbcore.structure_detail_side("列 UPDATE_TIME 默认值不同") == ""
     nullable_src = dbcore.TableMeta("T", [dbcore.Col("C", "VARCHAR2(10)", True)])
     not_null_dst = dbcore.TableMeta("T", [dbcore.Col("C", "VARCHAR2(10)", False)])
     assert dbcore.diff_structure(nullable_src, not_null_dst, "oracle") == [

@@ -12,6 +12,11 @@
 - `web/index.html`、`web/style.css`、`web/app.js` 构成前端界面。
 - `tests/selftest.py` 是 SQLite 端到端自测及 Oracle/MySQL SQL 文本校验；`tests/test_where.py` 校验筛选条件处理。
 
+## 版本管理
+
+- 当前应用版本从 `2.0.1` 开始，版本号定义在 `app.py` 的 `APP_VERSION`。
+- 每次修改代码后递增补丁版本号，例如 `2.0.1` 改为 `2.0.2`；窗口标题和 `web/index.html` 中的前端资源版本参数必须同步更新。
+
 ## 开发环境
 
 - 使用 Windows 10/11 和 Python 3.10-3.12，优先 Python 3.12。不要升级到 Python 3.13+，除非已确认 pywebview、pythonnet 和 cffi 均有兼容 wheel。
@@ -58,4 +63,3 @@
 - 涉及打包或资源路径时运行 `打包.bat`，确认 `dist\数据库同步比对工具\` 包含可执行文件和 `web` 资源并能启动。
 - `tests/debug_comment.py` 是需要外部 Oracle 环境的诊断脚本，不属于默认自动化测试。
 - GitHub Actions 在每次推送时执行上述自动化测试、生成 Windows x64 压缩包，并创建以提交 SHA 标识的预发布版本。
-
