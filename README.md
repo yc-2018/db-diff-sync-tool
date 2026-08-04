@@ -120,7 +120,24 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 启动.bat          启动应用
 初始化环境.bat     首次创建虚拟环境
 打包.bat          打包 exe，并在存在 Instant Client 时自动带上 Oracle 11g thick mode 依赖
+清空用户数据.bat   删除本机当前 Windows 用户下保存的连接配置、会话状态、历史记录和 WebView 缓存
 ```
+
+## 清空本机用户数据
+
+源码启动版、本地打包版和 GitHub 下载版会共用当前 Windows 用户下的数据目录：
+
+```text
+%USERPROFILE%\.dbsync_tool\
+```
+
+如果不再使用本工具，或想彻底清空本机保存的连接配置、会话状态、比对历史和 WebView 缓存，可以双击：
+
+```bat
+清空用户数据.bat
+```
+
+脚本会要求输入 `DELETE` 二次确认后才删除；删除后不可恢复。
 
 ## 自测
 
@@ -194,6 +211,7 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-08-04（v2.0.10）：新增 `清空用户数据.bat`，用于彻底删除当前 Windows 用户下的 `.dbsync_tool` 本机数据；本地打包脚本改为使用 `requirements.txt` 锁定依赖。
 - 2026-08-04（v2.0.9）：新增 `requirements.txt` 并让 GitHub Actions、初始化脚本使用锁定依赖；打包程序启动时会尝试移除 DLL/EXE 的 Windows Internet Zone 标记，避免 GitHub 下载包解压后 pythonnet 启动时报 `Python.Runtime.Loader.Initialize` 解析失败。
 - 2026-08-04（v2.0.7）：GitHub Actions 改为普通分支只跑测试，`main` 和 tag 才打包发布；artifact 保留 3 天，并自动清理仅保留最近 10 个 `build-*` 自动预发布。
 - 2026-08-04（v2.0.6）：GitHub Actions 在 Oracle Instant Client 下载失败时改为跳过 Oracle 11g 包，继续发布 thin 包，避免外部下载源影响普通版本发布。

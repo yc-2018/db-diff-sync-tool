@@ -20,7 +20,7 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
-APP_VERSION = "2.0.9"
+APP_VERSION = "2.0.10"
 APP_TITLE = "数据库对比工具 v%s" % APP_VERSION
 APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"

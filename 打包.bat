@@ -10,9 +10,9 @@ if not exist ".venv\Scripts\python.exe" (
 
 set "PY=.venv\Scripts\python.exe"
 
-"%PY%" -m pip install --upgrade pyinstaller
+"%PY%" -m pip install --no-cache-dir -r requirements.txt
 if errorlevel 1 (
-  echo [ERROR] Failed to install pyinstaller.
+  echo [ERROR] Failed to install packaging dependencies.
   pause
   exit /b 1
 )
