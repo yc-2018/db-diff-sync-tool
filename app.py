@@ -20,7 +20,7 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
-APP_VERSION = "2.0.7"
+APP_VERSION = "2.0.9"
 APP_TITLE = "数据库对比工具 v%s" % APP_VERSION
 APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
@@ -32,6 +32,7 @@ WEBVIEW_ASSET_CACHE_DIRS = (
     Path("EBWebView") / "Default" / "Code Cache",
     Path("EBWebView") / "Default" / "Service Worker" / "CacheStorage",
 )
+UNBLOCK_EXTENSIONS = {".dll", ".exe", ".pyd"}
 
 
 def clear_webview_asset_cache(storage_dir=WEBVIEW_STORAGE_DIR):
@@ -48,6 +49,30 @@ def clear_webview_asset_cache(storage_dir=WEBVIEW_STORAGE_DIR):
         except OSError:
             # 同一工具已有窗口运行时缓存文件可能被占用，不阻止新窗口启动。
             pass
+
+
+def unblock_bundled_runtime_files():
+    """移除下载 ZIP 解压后可能附带的 Windows Internet Zone 标记。"""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        root = Path(sys.executable).resolve().parent
+    except OSError:
+        return
+    try:
+        candidates = [root, root / "_internal"]
+        for base in candidates:
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*"):
+                if path.suffix.lower() not in UNBLOCK_EXTENSIONS:
+                    continue
+                try:
+                    os.remove(str(path) + ":Zone.Identifier")
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 # ------------------------------------------------------------ 配置持久化
@@ -534,6 +559,7 @@ class Api:
 # ------------------------------------------------------------ 入口
 
 def main():
+    unblock_bundled_runtime_files()
     import webview
     clear_webview_asset_cache()
     WEBVIEW_STORAGE_DIR.mkdir(parents=True, exist_ok=True)

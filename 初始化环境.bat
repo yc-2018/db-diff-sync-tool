@@ -25,7 +25,7 @@ if errorlevel 1 (
   exit /b 1
 )
 .venv\Scripts\python.exe -m pip install --upgrade pip
-.venv\Scripts\python.exe -m pip install --no-cache-dir pywebview oracledb pymysql
+.venv\Scripts\python.exe -m pip install --no-cache-dir -r requirements.txt
 echo.
 echo Init done. From now on just double-click the start bat.
 pause

@@ -182,6 +182,8 @@ Actions artifact 只保留 3 天；`main` 分支产生的 `build-*` 自动预发
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
+GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面的版本，避免 pywebview / pythonnet / clr_loader / PyInstaller 自动升级后打包产物启动失败。
+
 | 依赖 | 版本 | 说明 |
 |---|---|---|
 | pywebview | 6.2.1 | 窗口容器（WinForms 后端） |
@@ -192,6 +194,7 @@ Actions artifact 只保留 3 天；`main` 分支产生的 `build-*` 自动预发
 
 ## 变更日志
 
+- 2026-08-04（v2.0.9）：新增 `requirements.txt` 并让 GitHub Actions、初始化脚本使用锁定依赖；打包程序启动时会尝试移除 DLL/EXE 的 Windows Internet Zone 标记，避免 GitHub 下载包解压后 pythonnet 启动时报 `Python.Runtime.Loader.Initialize` 解析失败。
 - 2026-08-04（v2.0.7）：GitHub Actions 改为普通分支只跑测试，`main` 和 tag 才打包发布；artifact 保留 3 天，并自动清理仅保留最近 10 个 `build-*` 自动预发布。
 - 2026-08-04（v2.0.6）：GitHub Actions 在 Oracle Instant Client 下载失败时改为跳过 Oracle 11g 包，继续发布 thin 包，避免外部下载源影响普通版本发布。
 - 2026-08-04（v2.0.5）：GitHub Actions 同时发布 Oracle thin mode 和内置 Instant Client 19c 的 Oracle 11g（11.2+）兼容包；本地打包与运行时自动识别 `.oracle_client\instantclient_*`。
