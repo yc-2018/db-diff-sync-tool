@@ -1,4 +1,4 @@
-name: Build and release
+name: 构建与发布
 
 on:
   push:
@@ -23,26 +23,27 @@ concurrency:
 
 jobs:
   build-and-release:
+    name: 构建测试与发布
     runs-on: windows-latest
     timeout-minutes: 45
 
     steps:
-      - name: Checkout source
+      - name: 检出源码
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      - name: 设置 Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: 安装依赖
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install --no-cache-dir -r requirements.txt
           python -m pip freeze
 
-      - name: Run tests
+      - name: 运行测试
         shell: pwsh
         run: |
           python tests/selftest.py
@@ -51,7 +52,18 @@ jobs:
           python tests/test_urls.py
           python tests/test_profiles.py
 
-      - name: Build Windows thin-mode application
+      - name: 读取应用版本
+        id: app_version
+        shell: pwsh
+        run: |
+          $content = Get-Content -Path "app.py" -Raw -Encoding UTF8
+          if ($content -notmatch 'APP_VERSION\s*=\s*"([^"]+)"') {
+            throw "APP_VERSION not found in app.py"
+          }
+          $version = $Matches[1]
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: 构建 Windows 精简版
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
@@ -59,7 +71,7 @@ jobs:
             --app-name "数据库同步比对工具-thin" `
             --skip-oracle-client
 
-      - name: Download Oracle Instant Client 19c for Oracle 11g package
+      - name: 下载 Oracle Instant Client 19c
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         id: oracle_client
         shell: pwsh
@@ -86,7 +98,7 @@ jobs:
           }
           "ready=$($ready.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
-      - name: Build Windows Oracle 11g-compatible application
+      - name: 构建 Windows Oracle 11g 兼容版
         if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && steps.oracle_client.outputs.ready == 'true'
         shell: pwsh
         run: |
@@ -95,18 +107,18 @@ jobs:
             --oracle-client-dir $env:ORACLE_INSTANT_CLIENT_DIR `
             --require-oracle-client
 
-      - name: Create release archives
+      - name: 创建发布压缩包
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         id: package
         shell: pwsh
         run: |
-          $shortSha = "${{ github.sha }}".Substring(0, 7)
-          $releaseTag = "build-${{ github.sha }}"
+          $appVersion = "${{ steps.app_version.outputs.version }}"
+          $releaseTag = "auto-v$appVersion"
           if ("${{ github.ref_type }}" -eq "tag") {
             $releaseTag = "${{ github.ref_name }}"
           }
-          $thinArchive = "db-sync-tool-windows-x64-thin-$shortSha.zip"
-          $oracle11gArchive = "db-sync-tool-windows-x64-oracle11g-$shortSha.zip"
+          $thinArchive = "数据库同步比对工具-v$appVersion-Windows-x64-精简版.zip"
+          $oracle11gArchive = "数据库同步比对工具-v$appVersion-Windows-x64-Oracle11g兼容版.zip"
           Compress-Archive -Path "dist\数据库同步比对工具-thin\*" -DestinationPath $thinArchive
           if (Test-Path "dist\数据库同步比对工具-Oracle11g") {
             Compress-Archive -Path "dist\数据库同步比对工具-Oracle11g\*" -DestinationPath $oracle11gArchive
@@ -117,45 +129,48 @@ jobs:
           "thin_archive=$thinArchive" >> $env:GITHUB_OUTPUT
           "tag=$releaseTag" >> $env:GITHUB_OUTPUT
 
-      - name: Upload thin workflow artifact
+      - name: 上传精简版工作流产物
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: db-sync-tool-windows-x64-thin-${{ github.sha }}
+          name: 数据库同步比对工具-v${{ steps.app_version.outputs.version }}-精简版
           path: ${{ steps.package.outputs.thin_archive }}
           if-no-files-found: error
           retention-days: 3
 
-      - name: Upload Oracle 11g workflow artifact
+      - name: 上传 Oracle 11g 工作流产物
         if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && steps.package.outputs.oracle11g_archive != ''
         uses: actions/upload-artifact@v4
         with:
-          name: db-sync-tool-windows-x64-oracle11g-${{ github.sha }}
+          name: 数据库同步比对工具-v${{ steps.app_version.outputs.version }}-Oracle11g兼容版
           path: ${{ steps.package.outputs.oracle11g_archive }}
           if-no-files-found: error
           retention-days: 3
 
-      - name: Create or update prerelease
+      - name: 创建或更新预发布
         if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.package.outputs.tag }}
+          APP_VERSION: ${{ steps.app_version.outputs.version }}
           THIN_ARCHIVE: ${{ steps.package.outputs.thin_archive }}
           ORACLE11G_ARCHIVE: ${{ steps.package.outputs.oracle11g_archive }}
         run: |
-          $oracleNote = "- Oracle 11g 包本次未生成：Oracle Instant Client 下载或校验失败；thin 包仍正常发布。"
+          $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $oracleNote = "- Oracle 11g 兼容版本次未生成：Oracle Instant Client 下载或校验失败；精简版仍正常发布。"
           if ($env:ORACLE11G_ARCHIVE) {
-            $oracleNote = "- ``db-sync-tool-windows-x64-oracle11g-*.zip``：内置 Oracle Instant Client 19c，使用 thick mode，可连接 Oracle 11.2 及更高版本。"
+            $oracleNote = "- Oracle 11g 兼容版：$env:ORACLE11G_ARCHIVE，内置 Oracle Instant Client 19c，使用 thick mode，可连接 Oracle 11.2 及更高版本。"
           }
-          $title = "自动构建 ${{ github.ref_name }}@${{ github.sha }}"
+          $title = "数据库同步比对工具 v$env:APP_VERSION"
           $notes = @"
           本版本由 GitHub Actions 在推送后自动构建。
 
           - 分支：${{ github.ref_name }}
-          - 提交：${{ github.sha }}
+          - 版本：v$env:APP_VERSION
+          - 提交：$shortSha
           - 平台：Windows x64
-          - ``db-sync-tool-windows-x64-thin-*.zip``：未配置 Instant Client，使用 Oracle thin mode。
+          - 精简版：$env:THIN_ARCHIVE，未配置 Instant Client，使用 Oracle thin mode。
           $oracleNote
           "@
           $releaseFiles = @($env:THIN_ARCHIVE)
@@ -175,7 +190,7 @@ jobs:
               --prerelease
           }
 
-      - name: Keep latest 10 automatic prereleases
+      - name: 保留最近 10 个自动预发布
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
@@ -184,7 +199,7 @@ jobs:
           $ErrorActionPreference = "Stop"
           $autoReleases = gh release list --limit 1000 --json tagName,createdAt,isPrerelease |
             ConvertFrom-Json |
-            Where-Object { $_.isPrerelease -and $_.tagName -like "build-*" } |
+            Where-Object { $_.isPrerelease -and ($_.tagName -like "auto-v*" -or $_.tagName -like "build-*") } |
             Sort-Object createdAt -Descending
 
           $oldReleases = $autoReleases | Select-Object -Skip 10
