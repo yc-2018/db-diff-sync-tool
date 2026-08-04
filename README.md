@@ -195,7 +195,7 @@ GitHub Actions 会在每次推送时运行测试。只有推送到 `main` 分支
 - `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，适合 Oracle 11.2+、MySQL 和 SQLite。
 
 如果 Oracle 官方下载链接临时不可用或校验失败，GitHub Actions 会跳过 Oracle 11g 包，但仍继续发布 thin 包。
-Actions artifact 只保留 3 天；`main` 分支产生的 `auto-v*` / 旧 `build-*` 自动预发布只保留最近 10 个，tag 发布不会被自动清理。自动发布的标题、tag 和 ZIP 文件名会使用 `app.py` 中的版本号。
+Actions artifact 只保留 3 天；`main` 分支产生的 `auto-v*` / 旧 `build-*` 自动预发布只保留最近 10 个，tag 发布不会被自动清理。自动发布会先删除同名旧 release 再重建，确保最新一版排在 Release list 前面。标题、tag 和 ZIP 文件名会使用 `app.py` 中的版本号。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
@@ -211,6 +211,7 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-08-04（v2.0.12）：main 自动发布改为先删除同名旧 release 再重建，避免同版本更新后仍停留在 Release list 中间。
 - 2026-08-04（v2.0.11）：GitHub Actions 发布标题、自动 tag、artifact 名称和 ZIP 文件名改为使用应用版本号，减少 release 页面中的长提交哈希。
 - 2026-08-04（v2.0.10）：新增 `清空用户数据.bat`，用于彻底删除当前 Windows 用户下的 `.dbsync_tool` 本机数据；本地打包脚本改为使用 `requirements.txt` 锁定依赖。
 - 2026-08-04（v2.0.9）：新增 `requirements.txt` 并让 GitHub Actions、初始化脚本使用锁定依赖；打包程序启动时会尝试移除 DLL/EXE 的 Windows Internet Zone 标记，避免 GitHub 下载包解压后 pythonnet 启动时报 `Python.Runtime.Loader.Initialize` 解析失败。

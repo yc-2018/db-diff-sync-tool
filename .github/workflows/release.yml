@@ -180,8 +180,17 @@ jobs:
 
           gh release view $env:RELEASE_TAG 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG @releaseFiles --clobber
-            gh release edit $env:RELEASE_TAG --title $title --notes $notes --prerelease
+            if ("${{ github.ref_type }}" -eq "tag") {
+              gh release upload $env:RELEASE_TAG @releaseFiles --clobber
+              gh release edit $env:RELEASE_TAG --title $title --notes $notes --prerelease
+            } else {
+              gh release delete $env:RELEASE_TAG --cleanup-tag -y
+              gh release create $env:RELEASE_TAG @releaseFiles `
+                --target "${{ github.sha }}" `
+                --title $title `
+                --notes $notes `
+                --prerelease
+            }
           } else {
             gh release create $env:RELEASE_TAG @releaseFiles `
               --target "${{ github.sha }}" `
