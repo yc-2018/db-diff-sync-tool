@@ -172,10 +172,13 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 
 如果没有放置 Instant Client，打包仍会继续，程序运行和连接较新的 Oracle 都不会因为缺少 `oci.dll` 报错；此时会使用 `python-oracledb` 默认 thin mode。
 
-GitHub Actions 每次推送会发布两个 Windows x64 ZIP：
+GitHub Actions 会在每次推送时运行测试。只有推送到 `main` 分支或推送 tag 时，才会打包并发布 Windows x64 ZIP：
 
 - `db-sync-tool-windows-x64-thin-*.zip`：未携带 Instant Client，适合 Oracle 12.1+、MySQL 和 SQLite。
 - `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，适合 Oracle 11.2+、MySQL 和 SQLite。
+
+如果 Oracle 官方下载链接临时不可用或校验失败，GitHub Actions 会跳过 Oracle 11g 包，但仍继续发布 thin 包。
+Actions artifact 只保留 3 天；`main` 分支产生的 `build-*` 自动预发布只保留最近 10 个，tag 发布不会被自动清理。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
@@ -189,6 +192,8 @@ GitHub Actions 每次推送会发布两个 Windows x64 ZIP：
 
 ## 变更日志
 
+- 2026-08-04（v2.0.7）：GitHub Actions 改为普通分支只跑测试，`main` 和 tag 才打包发布；artifact 保留 3 天，并自动清理仅保留最近 10 个 `build-*` 自动预发布。
+- 2026-08-04（v2.0.6）：GitHub Actions 在 Oracle Instant Client 下载失败时改为跳过 Oracle 11g 包，继续发布 thin 包，避免外部下载源影响普通版本发布。
 - 2026-08-04（v2.0.5）：GitHub Actions 同时发布 Oracle thin mode 和内置 Instant Client 19c 的 Oracle 11g（11.2+）兼容包；本地打包与运行时自动识别 `.oracle_client\instantclient_*`。
 - 2026-08-04（v2.0.4）：启动前清理 WebView 网页资源缓存并保留 Local Storage，修复窗口标题已更新但结构比对页面仍执行旧脚本、单侧颜色不生效的问题。
 - 2026-08-04（v2.0.3）：修复 Oracle 列默认值中的 SQL 注释导致生成的 `ALTER TABLE ... MODIFY` 右括号被注释的问题；结构比对明细改为由后端明确标记单侧归属，本侧存在显示浅蓝色，本侧缺失显示浅红色。

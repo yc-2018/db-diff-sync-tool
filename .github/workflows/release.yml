@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - "**"
+    tags:
+      - "*"
 
 permissions:
   contents: write
@@ -49,6 +51,7 @@ jobs:
           python tests/test_profiles.py
 
       - name: Build Windows thin-mode application
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         run: |
           python package_windows.py `
@@ -56,21 +59,34 @@ jobs:
             --skip-oracle-client
 
       - name: Download Oracle Instant Client 19c for Oracle 11g package
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+        id: oracle_client
         shell: pwsh
         run: |
-          $archive = Join-Path $env:RUNNER_TEMP "instantclient-basic-windows.x64-19.31.zip"
-          Invoke-WebRequest -Uri $env:ORACLE_INSTANT_CLIENT_URL -OutFile $archive
-          $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actualHash -ne $env:ORACLE_INSTANT_CLIENT_SHA256) {
-            throw "Oracle Instant Client checksum mismatch: $actualHash"
+          $ErrorActionPreference = "Stop"
+          $ready = $false
+          try {
+            $archive = Join-Path $env:RUNNER_TEMP "instantclient-basic-windows.x64-19.31.zip"
+            Invoke-WebRequest -Uri $env:ORACLE_INSTANT_CLIENT_URL -OutFile $archive
+            $actualHash = (Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $env:ORACLE_INSTANT_CLIENT_SHA256) {
+              throw "Oracle Instant Client checksum mismatch: $actualHash"
+            }
+            New-Item -ItemType Directory -Path ".oracle_client" -Force | Out-Null
+            Expand-Archive -Path $archive -DestinationPath ".oracle_client" -Force
+            if (-not (Test-Path "$env:ORACLE_INSTANT_CLIENT_DIR\oci.dll")) {
+              throw "Oracle Instant Client extraction did not produce oci.dll."
+            }
+            $ready = $true
+            Write-Host "Oracle Instant Client downloaded and verified."
+          } catch {
+            Write-Warning "Oracle 11g package will be skipped: $($_.Exception.Message)"
+            Remove-Item -LiteralPath ".oracle_client" -Recurse -Force -ErrorAction SilentlyContinue
           }
-          New-Item -ItemType Directory -Path ".oracle_client" -Force | Out-Null
-          Expand-Archive -Path $archive -DestinationPath ".oracle_client" -Force
-          if (-not (Test-Path "$env:ORACLE_INSTANT_CLIENT_DIR\oci.dll")) {
-            throw "Oracle Instant Client extraction did not produce oci.dll."
-          }
+          "ready=$($ready.ToString().ToLowerInvariant())" >> $env:GITHUB_OUTPUT
 
       - name: Build Windows Oracle 11g-compatible application
+        if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && steps.oracle_client.outputs.ready == 'true'
         shell: pwsh
         run: |
           python package_windows.py `
@@ -79,29 +95,47 @@ jobs:
             --require-oracle-client
 
       - name: Create release archives
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         id: package
         shell: pwsh
         run: |
           $shortSha = "${{ github.sha }}".Substring(0, 7)
+          $releaseTag = "build-${{ github.sha }}"
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $releaseTag = "${{ github.ref_name }}"
+          }
           $thinArchive = "db-sync-tool-windows-x64-thin-$shortSha.zip"
           $oracle11gArchive = "db-sync-tool-windows-x64-oracle11g-$shortSha.zip"
           Compress-Archive -Path "dist\数据库同步比对工具-thin\*" -DestinationPath $thinArchive
-          Compress-Archive -Path "dist\数据库同步比对工具-Oracle11g\*" -DestinationPath $oracle11gArchive
+          if (Test-Path "dist\数据库同步比对工具-Oracle11g") {
+            Compress-Archive -Path "dist\数据库同步比对工具-Oracle11g\*" -DestinationPath $oracle11gArchive
+            "oracle11g_archive=$oracle11gArchive" >> $env:GITHUB_OUTPUT
+          } else {
+            "oracle11g_archive=" >> $env:GITHUB_OUTPUT
+          }
           "thin_archive=$thinArchive" >> $env:GITHUB_OUTPUT
-          "oracle11g_archive=$oracle11gArchive" >> $env:GITHUB_OUTPUT
-          "tag=build-${{ github.sha }}" >> $env:GITHUB_OUTPUT
+          "tag=$releaseTag" >> $env:GITHUB_OUTPUT
 
-      - name: Upload workflow artifact
+      - name: Upload thin workflow artifact
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
-          name: db-sync-tool-windows-x64-${{ github.sha }}
-          path: |
-            ${{ steps.package.outputs.thin_archive }}
-            ${{ steps.package.outputs.oracle11g_archive }}
+          name: db-sync-tool-windows-x64-thin-${{ github.sha }}
+          path: ${{ steps.package.outputs.thin_archive }}
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
+
+      - name: Upload Oracle 11g workflow artifact
+        if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && steps.package.outputs.oracle11g_archive != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-sync-tool-windows-x64-oracle11g-${{ github.sha }}
+          path: ${{ steps.package.outputs.oracle11g_archive }}
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Create or update prerelease
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -109,6 +143,10 @@ jobs:
           THIN_ARCHIVE: ${{ steps.package.outputs.thin_archive }}
           ORACLE11G_ARCHIVE: ${{ steps.package.outputs.oracle11g_archive }}
         run: |
+          $oracleNote = "- Oracle 11g 包本次未生成：Oracle Instant Client 下载或校验失败；thin 包仍正常发布。"
+          if ($env:ORACLE11G_ARCHIVE) {
+            $oracleNote = "- ``db-sync-tool-windows-x64-oracle11g-*.zip``：内置 Oracle Instant Client 19c，使用 thick mode，可连接 Oracle 11.2 及更高版本。"
+          }
           $title = "自动构建 ${{ github.ref_name }}@${{ github.sha }}"
           $notes = @"
           本版本由 GitHub Actions 在推送后自动构建。
@@ -116,18 +154,40 @@ jobs:
           - 分支：${{ github.ref_name }}
           - 提交：${{ github.sha }}
           - 平台：Windows x64
-          - `db-sync-tool-windows-x64-thin-*.zip`：未配置 Instant Client，使用 Oracle thin mode。
-          - `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，使用 thick mode，可连接 Oracle 11.2 及更高版本。
+          - ``db-sync-tool-windows-x64-thin-*.zip``：未配置 Instant Client，使用 Oracle thin mode。
+          $oracleNote
           "@
+          $releaseFiles = @($env:THIN_ARCHIVE)
+          if ($env:ORACLE11G_ARCHIVE) {
+            $releaseFiles += $env:ORACLE11G_ARCHIVE
+          }
 
           gh release view $env:RELEASE_TAG 2>$null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $env:RELEASE_TAG $env:THIN_ARCHIVE $env:ORACLE11G_ARCHIVE --clobber
+            gh release upload $env:RELEASE_TAG @releaseFiles --clobber
             gh release edit $env:RELEASE_TAG --title $title --notes $notes --prerelease
           } else {
-            gh release create $env:RELEASE_TAG $env:THIN_ARCHIVE $env:ORACLE11G_ARCHIVE `
+            gh release create $env:RELEASE_TAG @releaseFiles `
               --target "${{ github.sha }}" `
               --title $title `
               --notes $notes `
               --prerelease
+          }
+
+      - name: Keep latest 10 automatic prereleases
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $autoReleases = gh release list --limit 1000 --json tagName,createdAt,isPrerelease |
+            ConvertFrom-Json |
+            Where-Object { $_.isPrerelease -and $_.tagName -like "build-*" } |
+            Sort-Object createdAt -Descending
+
+          $oldReleases = $autoReleases | Select-Object -Skip 10
+          foreach ($release in $oldReleases) {
+            Write-Host "Deleting old automatic prerelease $($release.tagName)"
+            gh release delete $release.tagName --cleanup-tag -y
           }
