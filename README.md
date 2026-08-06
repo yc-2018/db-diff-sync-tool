@@ -75,6 +75,43 @@
    - 差异不超过 2000 条时展示全部明细；超过时仅展示前 200 条；
    - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制；单方向超过 5000 条时会截断并要求使用 WHERE 分批处理。
 
+## 给 AI agent 使用的 MCP 服务
+
+仓库同时提供一个与桌面窗口完全解耦的只读 MCP 服务：`mcp/server.py`，以及一个用于配置 agent 的图形界面
+`mcp/configurator.py`。它只读取本工具已经保存的
+`%USERPROFILE%\.dbsync_tool\connections.json`，不能通过 MCP 新增或修改数据源；密码只在服务进程内用于连接，
+`list_data_sources` 以及所有工具结果都不会返回密码。
+
+先在桌面工具中保存并测试数据源，再把下面的命令配置到支持 stdio MCP 的 AI agent。服务由 agent
+自动启动和管理，不需要用户手工运行。MCP 初始化响应会告诉 agent 先调用 `list_data_sources`，再按数据源
+名称找到 `source_id`，因此用户可以直接说“查询 XXX 数据源的 EMP 表结构”。
+
+```json
+{
+  "mcpServers": {
+    "dbsync": {
+      "command": "D:\\AllCode\\py\\db-diff-sync-tool\\.venv\\Scripts\\python.exe",
+      "args": ["D:\\AllCode\\py\\db-diff-sync-tool\\mcp\\server.py"]
+    }
+  }
+}
+```
+
+提供的工具为：`list_data_sources`、`list_tables`、`list_views`、`get_table_schema`、
+`get_view_schema`、`read_table` 和 `read_view`。读取表/视图数据可传 `where`，单次 `limit` 最大为 500（缺省
+也是 500）；表名、视图名和 WHERE 条件沿用应用的标识符及分号/注释拦截规则。服务只执行 SELECT 和元数据查询，
+不会执行任何修复 SQL。
+
+配置界面可以通过双击 `mcp/配置中心.bat` 打开，也可以运行：
+
+```bat
+.venv\Scripts\python.exe mcp\configurator.py
+```
+
+界面会扫描 Codex、Claude Code、OpenCode 是否已安装，并显示全局安装和当前项目安装状态。全局安装会让所有
+项目可用；项目安装需要先选择项目目录。安装前会读取目标 agent 的真实配置，已经存在 `dbsync` 时只提示已安装，
+不会重复写入。
+
 ## 界面展示
 ![](/.img/img_5.png)
 
@@ -113,11 +150,13 @@ ___
 
 ```
 app.py            应用入口与 JS API 桥（连接管理、比对调度）
+mcp/              面向 AI agent 的只读 MCP stdio 服务（入口为 server.py）
 package_windows.py Unicode-safe Windows PyInstaller 打包入口
 dbcore.py         比对核心：三种方言的元数据读取、结构/数据差异 SQL 生成
 web/              网页 UI 与应用图标（app-icon.svg / app-icon.png / app-icon.ico）
 tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文本校验
 启动.bat          启动应用
+mcp/配置中心.bat  打开 MCP 配置中心
 初始化环境.bat     首次创建虚拟环境
 打包.bat          打包 exe，并在存在 Instant Client 时自动带上 Oracle 11g thick mode 依赖
 清空用户数据.bat   删除本机当前 Windows 用户下保存的连接配置、会话状态、历史记录和 WebView 缓存
@@ -147,6 +186,8 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 .venv\Scripts\python.exe tests\test_limits.py
 .venv\Scripts\python.exe tests\test_urls.py
 .venv\Scripts\python.exe tests\test_profiles.py
+.venv\Scripts\python.exe tests\test_mcp_server.py
+.venv\Scripts\python.exe tests\test_mcp_configurator.py
 ```
 
 连接弹窗的“粘贴 JDBC URL / DSN”支持 Oracle SID/服务名，以及带账号密码的
@@ -168,7 +209,7 @@ tests/selftest.py 自测：SQLite 双库端到端验证 + Oracle/MySQL SQL 文�
 打包.bat
 ```
 
-产物在 `dist\数据库同步比对工具\`。`打包.bat` 只负责调用 ASCII 安全的入口，`package_windows.py` 使用 ASCII 内部构建名生成 PyInstaller 产物，再将最终目录和 exe 改为中文名称，并将 `web\app-icon.ico` 同时用于 exe、窗口和任务栏图标。
+产物在 `dist\数据库同步比对工具\`。`打包.bat` 只负责调用 ASCII 安全的入口，`package_windows.py` 使用 ASCII 内部构建名生成 PyInstaller 产物，再将最终目录和 exe 改为中文名称，并将 `web\app-icon.ico` 同时用于 exe、窗口和任务栏图标。产物中的 `mcp\` 子目录还包含 `dbsync-mcp.exe`（stdio 服务）和 `dbsync-mcp-configurator.exe`（配置界面）。
 
 ### Oracle 11g 依赖打包
 
@@ -211,6 +252,12 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-08-07（v2.0.18）：MCP 配置中心改为无 CMD 依赖启动，初始页面先选择项目，再检查 agent，修复启动阻塞和窗口交互问题。
+- 2026-08-07（v2.0.17）：修复 MCP 配置中心启动时扫描阻塞和 CMD 依赖，改为选择项目后再检查 agent。
+- 2026-08-07（v2.0.16）：新增 MCP 配置中心界面，可扫描 Codex、Claude Code、OpenCode 并执行全局或项目安装。
+- 2026-08-07（v2.0.15）：在 MCP 初始化响应中加入服务使用说明和只读工具标注，方便 agent 自动理解调用流程。
+- 2026-08-07（v2.0.14）：将 MCP 服务归档到独立的 `mcp/` 目录，移除容易造成手工启动误解的批处理入口。
+- 2026-08-07（v2.0.13）：新增与桌面窗口解耦的只读 MCP 服务，支持数据源、表/视图结构和最多 500 行数据读取。
 - 2026-08-04（v2.0.12）：main 自动发布改为先删除同名旧 release 再重建，避免同版本更新后仍停留在 Release list 中间。
 - 2026-08-04（v2.0.11）：GitHub Actions 发布标题、自动 tag、artifact 名称和 ZIP 文件名改为使用应用版本号，减少 release 页面中的长提交哈希。
 - 2026-08-04（v2.0.10）：新增 `清空用户数据.bat`，用于彻底删除当前 Windows 用户下的 `.dbsync_tool` 本机数据；本地打包脚本改为使用 `requirements.txt` 锁定依赖。

@@ -51,6 +51,8 @@ jobs:
           python tests/test_limits.py
           python tests/test_urls.py
           python tests/test_profiles.py
+          python tests/test_mcp_server.py
+          python tests/test_mcp_configurator.py
 
       - name: 读取应用版本
         id: app_version

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCP 配置中心</title>
+<link rel="stylesheet" href="configurator.css">
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">DB</div>
+      <div><h1>MCP 配置中心</h1><p>把只读数据库 MCP 接入本机 AI agent</p></div>
+    </div>
+    <button id="refresh" class="button button-ghost" type="button" title="重新检查 agent" hidden>↻ <span>重新检查</span></button>
+  </header>
+
+  <section class="project-panel">
+    <div class="section-heading"><div><h2>先选择项目</h2><p>选择项目后才会检查 agent 和 MCP 安装状态。</p></div><span id="scanState" class="scan-state">等待选择</span></div>
+    <div class="project-picker">
+      <label for="projectPath">项目目录</label>
+      <input id="projectPath" type="text" placeholder="选择一个项目目录后启用项目安装" autocomplete="off">
+      <button id="chooseProject" class="button button-secondary" type="button">⌂ <span>选择项目</span></button>
+      <button id="clearProject" class="button button-ghost" type="button">清除</button>
+    </div>
+  </section>
+
+  <section class="agents-section">
+    <div class="section-heading"><div><h2>选择要配置的 agent</h2><p>每个 agent 都可以单独选择全局安装或当前项目安装。</p></div></div>
+    <div id="agents" class="agents-grid empty-grid"><div class="empty-state">选择项目后显示 Codex、Claude Code 和 OpenCode</div></div>
+  </section>
+
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+</main>
+<script src="configurator.js"></script>
+</body>
+</html>
