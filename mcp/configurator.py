@@ -47,6 +47,14 @@ def unblock_bundled_runtime_files():
         pass
 
 
+def resource_path(name):
+    """Resolve a configurator asset in source and PyInstaller runtimes."""
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        return Path(bundle_root) / "mcp" / name
+    return Path(__file__).resolve().parent / name
+
+
 def _command_path(command):
     found = shutil.which(command)
     if found:
@@ -156,9 +164,6 @@ def _run_cli(binary, args, cwd=None):
 
 
 class ConfiguratorApi:
-    def __init__(self):
-        self.window = None
-
     @staticmethod
     def runtime():
         if getattr(sys, "frozen", False):
@@ -256,12 +261,11 @@ def main():
     unblock_bundled_runtime_files()
     import webview
     api = ConfiguratorApi()
-    page = Path(__file__).resolve().parent / "configurator.html"
+    page = resource_path("configurator.html")
     window = webview.create_window(
         "MCP 配置中心", str(page), js_api=api, width=1080, height=700,
         min_size=(860, 580), text_select=True, frameless=False,
         easy_drag=False, on_top=False, resizable=True, focus=True)
-    api.window = window
     webview.start(debug=False)
 
 

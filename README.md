@@ -252,6 +252,7 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-08-09（v2.0.20）：修复打包版 MCP 配置中心页面资源路径错误导致的 404，以及 JS API 循环引用导致的窗口未响应。
 - 2026-08-09（v2.0.19）：修复从 GitHub ZIP 解压后 MCP 配置中心因 Windows Internet Zone 标记导致的 pywebview/pythonnet 启动失败。
 - 2026-08-07（v2.0.18）：MCP 配置中心改为无 CMD 依赖启动，初始页面先选择项目，再检查 agent，修复启动阻塞和窗口交互问题。
 - 2026-08-07（v2.0.17）：修复 MCP 配置中心启动时扫描阻塞和 CMD 依赖，改为选择项目后再检查 agent。

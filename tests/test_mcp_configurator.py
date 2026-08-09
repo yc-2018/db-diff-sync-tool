@@ -10,6 +10,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "mcp"))
 import configurator
 
 
+assert not hasattr(configurator.ConfiguratorApi(), "window")
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    bundle_root = Path(tmp)
+    page = bundle_root / "mcp" / "configurator.html"
+    page.parent.mkdir()
+    page.write_text("<!doctype html>", encoding="utf-8")
+    had_meipass = hasattr(configurator.sys, "_MEIPASS")
+    original_meipass = getattr(configurator.sys, "_MEIPASS", None)
+    try:
+        configurator.sys._MEIPASS = str(bundle_root)
+        assert configurator.resource_path("configurator.html") == page
+    finally:
+        if had_meipass:
+            configurator.sys._MEIPASS = original_meipass
+        else:
+            del configurator.sys._MEIPASS
+
+
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
     executable = root / "configurator.exe"
