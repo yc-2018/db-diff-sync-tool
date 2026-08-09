@@ -14,6 +14,7 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 SERVER_FILE = Path(__file__).resolve().parent / "server.py"
 VENV_PYTHON = ROOT_DIR / ".venv" / "Scripts" / "python.exe"
 MCP_NAME = "dbsync"
+UNBLOCK_EXTENSIONS = {".dll", ".exe", ".pyd"}
 
 
 AGENT_DEFINITIONS = {
@@ -21,6 +22,29 @@ AGENT_DEFINITIONS = {
     "claude": {"name": "Claude Code", "command": "claude"},
     "opencode": {"name": "OpenCode", "command": "opencode"},
 }
+
+
+def unblock_bundled_runtime_files():
+    """Remove Windows Internet Zone marks from downloaded frozen runtimes."""
+    if not getattr(sys, "frozen", False):
+        return
+    try:
+        root = Path(sys.executable).resolve().parent
+    except OSError:
+        return
+    try:
+        for base in (root, root / "_internal"):
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*"):
+                if path.suffix.lower() not in UNBLOCK_EXTENSIONS:
+                    continue
+                try:
+                    os.remove(str(path) + ":Zone.Identifier")
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 def _command_path(command):
@@ -229,6 +253,7 @@ class ConfiguratorApi:
 
 
 def main():
+    unblock_bundled_runtime_files()
     import webview
     api = ConfiguratorApi()
     page = Path(__file__).resolve().parent / "configurator.html"

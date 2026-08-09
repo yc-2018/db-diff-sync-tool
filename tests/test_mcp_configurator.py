@@ -12,6 +12,33 @@ import configurator
 
 with tempfile.TemporaryDirectory() as tmp:
     root = Path(tmp)
+    executable = root / "configurator.exe"
+    internal = root / "_internal"
+    internal.mkdir()
+    for name in ("runtime.dll", "helper.exe", "extension.pyd", "readme.txt"):
+        (internal / name).write_bytes(b"")
+    original_frozen = getattr(configurator.sys, "frozen", False)
+    original_executable = configurator.sys.executable
+    removed = []
+    original_remove = configurator.os.remove
+    try:
+        configurator.sys.frozen = True
+        configurator.sys.executable = str(executable)
+        configurator.os.remove = lambda path: removed.append(path)
+        configurator.unblock_bundled_runtime_files()
+    finally:
+        configurator.os.remove = original_remove
+        configurator.sys.executable = original_executable
+        configurator.sys.frozen = original_frozen
+    assert {Path(path).name for path in removed} == {
+        "runtime.dll:Zone.Identifier",
+        "helper.exe:Zone.Identifier",
+        "extension.pyd:Zone.Identifier",
+    }
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    root = Path(tmp)
     codex_config = root / ".codex" / "config.toml"
     assert configurator._write_codex_project_config(codex_config, "python.exe", ["server.py"])
     assert configurator._toml_has_server(codex_config)
