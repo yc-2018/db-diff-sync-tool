@@ -8,6 +8,8 @@ const S = {
   tables: { left: [], right: [] },
   structHistory: [],
   dataHistory: [],
+  structFavorites: [],
+  dataFavorites: [],
   tableListRequest: 0,
   mode: null,                            // 'struct' | 'data'
   busy: false,
@@ -15,8 +17,10 @@ const S = {
 
 const STRUCT_HISTORY_KEY = "dbsync.structCompareHistory.v1";
 const STRUCT_HISTORY_LIMIT = 20;
+const STRUCT_FAVORITES_KEY = "dbsync.structCompareFavorites.v1";
 const DATA_HISTORY_KEY = "dbsync.dataCompareHistory.v1";
 const DATA_HISTORY_LIMIT = 20;
+const DATA_FAVORITES_KEY = "dbsync.dataCompareFavorites.v1";
 
 const $ = (sel, root) => (root || document).querySelector(sel);
 const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
@@ -96,6 +100,53 @@ function clearStructHistory() {
   saveStructHistory();
 }
 
+function loadStructFavorites() {
+  try {
+    const raw = localStorage.getItem(STRUCT_FAVORITES_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    S.structFavorites = Array.isArray(rows)
+      ? rows.map(item => Array.isArray(item) ? item : item && item.tables)
+          .filter(Array.isArray)
+          .map(tables => tables.map(x => String(x || "").trim()).filter(Boolean))
+          .filter(tables => tables.length)
+      : [];
+  } catch (_e) {
+    S.structFavorites = [];
+  }
+}
+
+function saveStructFavorites() {
+  try {
+    localStorage.setItem(STRUCT_FAVORITES_KEY, JSON.stringify(S.structFavorites));
+  } catch (_e) {
+    // 本地存储不可用时不影响正常比对
+  }
+}
+
+function structHistoryKey(tables) {
+  return tables.join("\n").toLocaleLowerCase();
+}
+
+function isStructFavorite(tables) {
+  const key = structHistoryKey(tables);
+  return S.structFavorites.some(item => structHistoryKey(item) === key);
+}
+
+function toggleStructFavorite(tables) {
+  const clean = tables.map(x => String(x || "").trim()).filter(Boolean);
+  if (!clean.length) return;
+  const key = structHistoryKey(clean);
+  const index = S.structFavorites.findIndex(item => structHistoryKey(item) === key);
+  if (index >= 0) S.structFavorites.splice(index, 1);
+  else S.structFavorites.unshift(clean);
+  saveStructFavorites();
+}
+
+function removeStructFavorite(index) {
+  S.structFavorites.splice(index, 1);
+  saveStructFavorites();
+}
+
 function loadDataHistory() {
   try {
     const raw = localStorage.getItem(DATA_HISTORY_KEY);
@@ -143,6 +194,57 @@ function removeDataHistory(index) {
 function clearDataHistory() {
   S.dataHistory = [];
   saveDataHistory();
+}
+
+function loadDataFavorites() {
+  try {
+    const raw = localStorage.getItem(DATA_FAVORITES_KEY);
+    const rows = raw ? JSON.parse(raw) : [];
+    S.dataFavorites = Array.isArray(rows)
+      ? rows.map(item => ({
+          table: String(item && item.table || "").trim(),
+          where: String(item && item.where || "").trim(),
+        }))
+          .filter(item => item.table)
+      : [];
+  } catch (_e) {
+    S.dataFavorites = [];
+  }
+}
+
+function saveDataFavorites() {
+  try {
+    localStorage.setItem(DATA_FAVORITES_KEY, JSON.stringify(S.dataFavorites));
+  } catch (_e) {
+    // 本地存储不可用时不影响正常比对
+  }
+}
+
+function dataHistoryKey(entry) {
+  return entry.table.toLocaleLowerCase() + "\n" + entry.where;
+}
+
+function isDataFavorite(entry) {
+  const key = dataHistoryKey(entry);
+  return S.dataFavorites.some(item => dataHistoryKey(item) === key);
+}
+
+function toggleDataFavorite(entry) {
+  const clean = {
+    table: String(entry && entry.table || "").trim(),
+    where: String(entry && entry.where || "").trim(),
+  };
+  if (!clean.table) return;
+  const key = dataHistoryKey(clean);
+  const index = S.dataFavorites.findIndex(item => dataHistoryKey(item) === key);
+  if (index >= 0) S.dataFavorites.splice(index, 1);
+  else S.dataFavorites.unshift(clean);
+  saveDataFavorites();
+}
+
+function removeDataFavorite(index) {
+  S.dataFavorites.splice(index, 1);
+  saveDataFavorites();
 }
 
 function paneOf(side) { return $("#pane-" + side); }
@@ -611,10 +713,10 @@ function renderTableMenu(picker) {
   }
   menu.appendChild(options);
 
-  if (mode === "struct" && S.structHistory.length && !query) {
+  if (mode === "struct" && (S.structHistory.length || S.structFavorites.length) && !query) {
     const history = document.createElement("div");
     history.className = "table-history";
-    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div>';
+    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div><div class="table-history-favorites"></div>';
     const historyList = $(".table-history-list", history);
     $(".table-history-clear", history).addEventListener("click", () => {
       clearStructHistory();
@@ -644,16 +746,59 @@ function renderTableMenu(picker) {
         removeStructHistory(index);
         renderTableMenu(picker);
       });
-      row.append(item, remove);
+      const favorite = document.createElement("button");
+      favorite.type = "button";
+      favorite.className = "table-history-favorite";
+      favorite.textContent = isStructFavorite(tables) ? "★" : "☆";
+      favorite.title = isStructFavorite(tables) ? "取消收藏" : "收藏到收藏夹";
+      favorite.setAttribute("aria-label", `${favorite.title}：${item.textContent}`);
+      favorite.addEventListener("click", e => {
+        e.stopPropagation();
+        toggleStructFavorite(tables);
+        renderTableMenu(picker);
+      });
+      row.append(item, favorite, remove);
       historyList.appendChild(row);
     });
+    if (S.structFavorites.length) {
+      const favorites = $(".table-history-favorites", history);
+      favorites.innerHTML = '<div class="table-history-head table-history-favorites-head"><div class="table-history-title">收藏夹</div></div><div class="table-history-list"></div>';
+      const favoritesList = $(".table-history-list", favorites);
+      S.structFavorites.forEach((tables, index) => {
+        const row = document.createElement("div");
+        row.className = "table-history-row";
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "table-history-item";
+        item.textContent = tables.join(", ");
+        item.title = item.textContent;
+        item.addEventListener("click", () => {
+          syncTableInputs(".table-input", tables.join(", "));
+          renderTableMenu(picker);
+          const search = $(".table-menu-search", picker);
+          if (search) search.focus({ preventScroll: true });
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "table-history-remove";
+        remove.textContent = "×";
+        remove.title = "从收藏夹删除";
+        remove.setAttribute("aria-label", `从收藏夹删除：${item.textContent}`);
+        remove.addEventListener("click", () => {
+          removeStructFavorite(index);
+          renderTableMenu(picker);
+        });
+        row.append(item, remove);
+        favoritesList.appendChild(row);
+      });
+    }
     menu.appendChild(history);
   }
 
-  if (mode === "data" && S.dataHistory.length && !query) {
+  if (mode === "data" && (S.dataHistory.length || S.dataFavorites.length) && !query) {
     const history = document.createElement("div");
     history.className = "table-history";
-    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div>';
+    history.innerHTML = '<div class="table-history-head"><div class="table-history-title">最近对比</div><button type="button" class="table-history-clear">清空历史</button></div><div class="table-history-list"></div><div class="table-history-favorites"></div>';
     const historyList = $(".table-history-list", history);
     $(".table-history-clear", history).addEventListener("click", () => {
       clearDataHistory();
@@ -683,9 +828,52 @@ function renderTableMenu(picker) {
         removeDataHistory(index);
         renderTableMenu(picker);
       });
-      row.append(item, remove);
+      const favorite = document.createElement("button");
+      favorite.type = "button";
+      favorite.className = "table-history-favorite";
+      favorite.textContent = isDataFavorite(entry) ? "★" : "☆";
+      favorite.title = isDataFavorite(entry) ? "取消收藏" : "收藏到收藏夹";
+      favorite.setAttribute("aria-label", `${favorite.title}：${item.textContent}`);
+      favorite.addEventListener("click", e => {
+        e.stopPropagation();
+        toggleDataFavorite(entry);
+        renderTableMenu(picker);
+      });
+      row.append(item, favorite, remove);
       historyList.appendChild(row);
     });
+    if (S.dataFavorites.length) {
+      const favorites = $(".table-history-favorites", history);
+      favorites.innerHTML = '<div class="table-history-head table-history-favorites-head"><div class="table-history-title">收藏夹</div></div><div class="table-history-list"></div>';
+      const favoritesList = $(".table-history-list", favorites);
+      S.dataFavorites.forEach((entry, index) => {
+        const row = document.createElement("div");
+        row.className = "table-history-row";
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "table-history-item";
+        item.textContent = `${entry.table} · ${entry.where ? "WHERE " + entry.where : "无 WHERE"}`;
+        item.title = item.textContent;
+        item.addEventListener("click", () => {
+          syncTableInputs(".data-table-input", entry.table);
+          $(".data-where-input", $("#shared-where")).value = entry.where;
+          picker.dataset.filter = "";
+          closeTablePickers();
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "table-history-remove";
+        remove.textContent = "×";
+        remove.title = "从收藏夹删除";
+        remove.setAttribute("aria-label", `从收藏夹删除：${item.textContent}`);
+        remove.addEventListener("click", () => {
+          removeDataFavorite(index);
+          renderTableMenu(picker);
+        });
+        row.append(item, remove);
+        favoritesList.appendChild(row);
+      });
+    }
     menu.appendChild(history);
   }
 }
@@ -1086,6 +1274,8 @@ function setMode(m) {
 async function init() {
   loadStructHistory();
   loadDataHistory();
+  loadStructFavorites();
+  loadDataFavorites();
   for (const side of SIDES) bindPane(side);
   bindTablePicker("struct");
   bindTablePicker("data");

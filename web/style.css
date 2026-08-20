@@ -478,6 +478,13 @@ body {
   display: grid;
   gap: 5px;
 }
+.table-history-favorites {
+  margin-top: 5px;
+  border-top: 1px solid var(--border);
+}
+.table-history-favorites-head {
+  padding-top: 7px;
+}
 .table-history-row {
   min-height: 29px;
   display: flex;
@@ -500,6 +507,17 @@ body {
   white-space: nowrap;
 }
 .table-history-item:hover, .table-history-item:focus { background: #eff6ff; outline: none; color: #1d4ed8; }
+.table-history-favorite {
+  flex: 0 0 28px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #d97706;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+.table-history-favorite:hover, .table-history-favorite:focus { background: #fffbeb; outline: none; }
 .table-history-remove {
   flex: 0 0 28px;
   border: none;
