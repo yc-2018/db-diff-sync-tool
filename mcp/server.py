@@ -426,7 +426,31 @@ def handle_request(request, service):
     return {"jsonrpc": "2.0", "id": request_id, "error": {"code": -32601, "message": "Method not found: %s" % method}}
 
 
+def _force_utf8_stdio():
+    """把 stdio 强制为 UTF-8 且不做换行翻译。
+
+    Windows 下 stdout 被管道接管时默认编码是 GBK（cp936），而 MCP 协议要求
+    UTF-8。不显式设置的话，带中文的 description/instructions 会以 GBK 字节送出，
+    客户端按 UTF-8 解码即失败，整个 server 的握手和 tools/list 都会被丢弃。
+    同时把 newline 固定为 \n，避免输出被翻译成 \r\n 干扰按行分隔的报文。
+    """
+    for stream in (sys.stdin, sys.stdout):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            if stream is sys.stdout:
+                reconfigure(encoding="utf-8", errors="replace", newline="\n")
+            else:
+                reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            # 流已被重定向为非文本对象时跳过，不阻断服务启动。
+            pass
+
+
 def run_stdio(service=None, input_stream=None, output_stream=None):
+    if input_stream is None or output_stream is None:
+        _force_utf8_stdio()
     service = service or ReadOnlyDatabaseService()
     input_stream = input_stream or sys.stdin
     output_stream = output_stream or sys.stdout

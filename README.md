@@ -258,6 +258,7 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-10-07（v2.0.22）：修复 MCP 服务在中文 Windows 下不可用的编码缺陷——`mcp/server.py` 的 stdio 此前使用 `sys.stdout` 默认编码（中文系统为 GBK），而 MCP 协议要求 UTF-8，导致含中文的 `description`/`instructions` 以 GBK 字节送出、客户端按 UTF-8 解码失败，整个握手与 `tools/list` 响应被丢弃，工具在 Claude Code 等客户端中完全注册不上。现于 `run_stdio` 启动时把 stdin/stdout 强制 `reconfigure` 为 UTF-8，并将 stdout 换行固定为 `\n`。
 - 2026-08-21（v2.0.21）：最近对比记录新增收藏按钮和独立收藏列表，支持结构/数据对比收藏、回填和删除，收藏项不受最近记录数量上限影响。
 - 2026-08-09（v2.0.20）：修复打包版 MCP 配置中心页面资源路径错误导致的 404，以及 JS API 循环引用导致的窗口未响应。
 - 2026-08-09（v2.0.19）：修复从 GitHub ZIP 解压后 MCP 配置中心因 Windows Internet Zone 标记导致的 pywebview/pythonnet 启动失败。
