@@ -20,7 +20,7 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
-APP_VERSION = "2.0.22"
+APP_VERSION = "2.0.23"
 APP_TITLE = "数据库对比工具 v%s" % APP_VERSION
 APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
@@ -129,6 +129,8 @@ def validate_profile(p, require_name=False):
         raise dbcore.DBError("连接配置无效")
     if require_name and not (p.get("name") or "").strip():
         raise dbcore.DBError("请填写配置名")
+    # AI 写权限只属于测试库；非测试库强制关闭，测试库按显式勾选保存。
+    p["allow_ai_write"] = bool(p.get("allow_ai_write")) and p.get("tag") == "test"
 
     ptype = (p.get("type") or "").strip().lower()
     if ptype not in dbcore.TYPE_NAMES:
@@ -195,7 +197,7 @@ class Api:
         p = s["profile"]
         return {"profile_id": p.get("id"), "name": p.get("name") or p.get("host"),
                 "type": p.get("type"), "type_name": dbcore.TYPE_NAMES.get(p.get("type"), p.get("type")),
-                "tag": p.get("tag", "")}
+                "tag": p.get("tag", ""), "allow_ai_write": bool(p.get("allow_ai_write"))}
 
     def _state(self):
         sess = load_session()

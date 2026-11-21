@@ -262,6 +262,7 @@ function formProfile(side) {
     type: type,
     name: $(".f-name", f).value.trim(),
     tag: tag,
+    allow_ai_write: !!(f.querySelector(".f-allow-write") && f.querySelector(".f-allow-write").checked),
     host: $(".f-hostname", f).value.trim(),
     port: /^\d+$/.test(rawPort) ? Number(rawPort) : rawPort,
     user: $(".f-user", f).value.trim(),
@@ -303,6 +304,9 @@ function fillForm(side, p) {
   const tagVal = (p && p.tag) || "";
   const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
   for (const r of radios) { r.checked = (r.value === tagVal); }
+  const allowWrite = f.querySelector(".f-allow-write");
+  if (allowWrite) allowWrite.checked = !!(p && p.allow_ai_write);
+  updateAllowWrite(side);
   $(".f-hostname", f).value = (p && p.host) || "";
   $(".f-portnum", f).value = (p && p.port) || ((p && p.type === "mysql") ? 3306 : 1521);
   $(".f-user", f).value = (p && p.user) || "";
@@ -334,6 +338,19 @@ function onTypeChange(side) {
   const port = $(".f-portnum", f);
   if (type === "oracle" && (port.value === "3306" || !port.value)) port.value = "1521";
   if (type === "mysql" && (port.value === "1521" || !port.value)) port.value = "3306";
+}
+
+function updateAllowWrite(side) {
+  const f = paneOf(side);
+  const row = $(".f-allow-write-row", f);
+  const checkbox = $(".f-allow-write", f);
+  if (!row || !checkbox) return;
+  let tag = "";
+  const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
+  for (const r of radios) { if (r.checked) { tag = r.value; break; } }
+  const isTest = tag === "test";
+  row.style.display = isTest ? "" : "none";
+  if (!isTest) checkbox.checked = false;
 }
 
 /* ---------------- 渲染 ---------------- */
@@ -1127,6 +1144,9 @@ async function copySQL(side) {
 function bindPane(side) {
   const f = paneOf(side);
   $(".f-type", f).addEventListener("change", () => onTypeChange(side));
+  f.querySelectorAll('input[name="tag-' + side + '"]').forEach(radio => {
+    radio.addEventListener("change", () => updateAllowWrite(side));
+  });
   $(".btn-parse-url", f).addEventListener("click", () => doParseUrl(side));
   $(".f-url", f).addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); doParseUrl(side); } });
   $(".btn-test", f).addEventListener("click", () => doTest(side));

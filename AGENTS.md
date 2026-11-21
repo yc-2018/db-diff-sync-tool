@@ -6,7 +6,7 @@
 
 - 本项目是仅面向 Windows 的数据库同步比对桌面工具，使用 Python + pywebview 承载原生窗口，`web/` 提供内嵌页面。
 - 应用支持 Oracle、MySQL 和 SQLite；两侧数据库必须同类型。
-- 核心安全边界：应用只生成结构或数据修复 SQL，绝不自动执行生成的 SQL。
+- 核心安全边界：桌面应用只生成结构或数据修复 SQL，绝不自动执行生成的 SQL；MCP 服务默认只读，唯一例外是测试库受控写入：只有 `tag=test` 且连接配置显式开启 `allow_ai_write` 的数据源可使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql`，正式库只能作为来源。
 - `app.py` 是应用入口和 JavaScript API 桥，负责连接配置、会话状态以及比对流程调度。
 - `dbcore.py` 负责数据库方言、元数据读取、结构/数据差异计算和 SQL 生成。
 - `web/index.html`、`web/style.css`、`web/app.js` 构成前端界面。

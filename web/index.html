@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>数据库对比工具</title>
 <link rel="icon" href="app-icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=2.0.22">
+<link rel="stylesheet" href="style.css?v=2.0.23">
 </head>
 <body>
 
@@ -74,6 +74,12 @@
           <label class="tag-radio tag-prod"><input type="radio" name="tag-left" value="prod"><span>正式</span></label>
           <label class="tag-radio tag-dev"><input type="radio" name="tag-left" value="dev"><span>开发</span></label>
         </div>
+      </div>
+      <div class="frow f-allow-write-row" style="display:none">
+        <label>AI 写权限</label>
+        <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px">
+          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试库）
+        </label>
       </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
@@ -156,6 +162,12 @@
           <label class="tag-radio tag-dev"><input type="radio" name="tag-right" value="dev"><span>开发</span></label>
         </div>
       </div>
+      <div class="frow f-allow-write-row" style="display:none">
+        <label>AI 写权限</label>
+        <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px">
+          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试库）
+        </label>
+      </div>
       <div class="f-host-row">
         <div class="frow f-host"><label>主机</label><input class="f-hostname" placeholder="127.0.0.1"></div>
         <div class="frow f-port"><label>端口</label><input class="f-portnum" value="1521"></div>
@@ -199,6 +211,6 @@
 </main>
 
 <div class="toast" id="toast"></div>
-<script src="app.js?v=2.0.22"></script>
+<script src="app.js?v=2.0.23"></script>
 </body>
 </html>

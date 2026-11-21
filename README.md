@@ -1,6 +1,6 @@
 # 数据库同步比对工具
 
-一个 Windows 桌面应用（原生窗口 + 网页 UI），用于比对**两个同类型数据库**之间的表结构与表数据差异，并分别生成「让某一侧变成对方」的修复 SQL。**应用只生成 SQL 供复制，绝不替你执行。**
+一个 Windows 桌面应用（原生窗口 + 网页 UI），用于比对**两个同类型数据库**之间的表结构与表数据差异，并分别生成「让某一侧变成对方」的修复 SQL。**桌面界面只生成 SQL 供复制，绝不替你执行。** MCP 服务默认也只读；只有开启 `allow_ai_write` 的 `test` 测试库可以使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql` 进行受控写入。
 
 ## 支持的数据库
 
@@ -77,10 +77,11 @@
 
 ## 给 AI agent 使用的 MCP 服务
 
-仓库同时提供一个与桌面窗口完全解耦的只读 MCP 服务：`mcp/server.py`，以及一个用于配置 agent 的图形界面
+仓库同时提供一个与桌面窗口完全解耦的 MCP 服务：`mcp/server.py`，以及一个用于配置 agent 的图形界面
 `mcp/configurator.py`。它只读取本工具已经保存的
 `%USERPROFILE%\.dbsync_tool\connections.json`，不能通过 MCP 新增或修改数据源；密码只在服务进程内用于连接，
-`list_data_sources` 以及所有工具结果都不会返回密码。
+`list_data_sources` 以及所有工具结果都不会返回密码。MCP 默认只读；可写工具 `copy_table_to_test`、
+`preview_sql` 和 `execute_test_sql` 只能用于开启 `allow_ai_write` 的 `test` 目标库。
 
 先在桌面工具中保存并测试数据源，再把下面的命令配置到支持 stdio MCP 的 AI agent。服务由 agent
 自动启动和管理，不需要用户手工运行。MCP 初始化响应会告诉 agent 先调用 `list_data_sources`，再按数据源
@@ -97,10 +98,24 @@
 }
 ```
 
-提供的工具为：`list_data_sources`、`list_tables`、`list_views`、`get_table_schema`、
-`get_view_schema`、`read_table` 和 `read_view`。读取表/视图数据可传 `where`，单次 `limit` 最大为 500（缺省
-也是 500）；表名、视图名和 WHERE 条件沿用应用的标识符及分号/注释拦截规则。服务只执行 SELECT 和元数据查询，
-不会执行任何修复 SQL。
+提供的工具为：`list_data_sources`、`list_tables`、`list_views`、`get_table_schema`、`get_table_schemas`、
+`get_view_schema`、`read_table`、`read_view`、`read_tables`、`query`、`compare_structure`、
+`preview_data_compare`、`compare_data`、`copy_table_to_test`、`preview_sql` 和 `execute_test_sql`。读取表/视图数据可传
+`where`、`columns`、`order_by`、`limit`、`offset` 和 `count_only`，单次 `limit` 最大 500（缺省也是 500）；
+`read_tables` 可一次读取多张表，`query` 只接受单条只读 `SELECT`/`WITH` 查询，禁止写入、DDL、注释和多语句。
+`copy_table_to_test` 用于把数据复制到 `tag=test` 且 `allow_ai_write=true` 的目标库：源表与目标表的列结构
+（列名、类型、可空性、主键）必须一致；`where` 过滤源表行，`target_where` 可限制 `replace` 模式删除的目标行
+（不传则清空目标表）；默认 `dry_run=true` 只做检查，确认后才传 `dry_run=false` 执行。
+`preview_sql` / `execute_test_sql` 只允许在开启 `allow_ai_write` 的测试库执行单条 `INSERT/UPDATE/DELETE`：
+`preview_sql` 在事务中执行后回滚，只返回影响行数；`execute_test_sql` 确认后提交，失败自动回滚，操作会写入
+`%USERPROFILE%\.dbsync_tool\ai_write_audit.log`。生产库始终只读，禁止作为写目标。测试库需要在连接配置中把
+标签选为“测试”，才会显示“AI 写权限”复选框；只有勾选并保存后 MCP 才允许写操作。
+表名、视图名和 WHERE 条件沿用应用的标识符及分号/注释拦截规则。除 `copy_table_to_test` 外，服务只执行 SELECT
+和元数据查询，不会执行任何修复 SQL。
+
+MCP 服务会在进程内复用每个 `source_id` 的数据库连接，并缓存表/视图结构和对象列表（默认 60 秒）；
+数据源配置中的 `tag` 字段会随 `list_data_sources` 返回（`test`/`prod`/`dev`），便于 agent 判断环境。
+
 
 配置界面可以通过双击 `mcp/配置中心.bat` 打开，也可以运行：
 
@@ -258,6 +273,7 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-11-21（v2.0.23）：优化 MCP 服务：按 `source_id` 复用数据库连接并缓存结构/对象列表；新增 `get_table_schemas`、`read_tables`、`query`、`compare_structure`、`preview_data_compare`、`compare_data`；`read_table`/`read_view` 支持列选择、排序、分页和 `count_only`；新增测试库受控写入：连接配置增加 `allow_ai_write`（仅 `tag=test` 可开启），新增 `copy_table_to_test`、`preview_sql`、`execute_test_sql`，只允许 DML、预览回滚、失败回滚并记录 `ai_write_audit.log`；补充对应测试。
 - 2026-10-07（v2.0.22）：修复 MCP 服务在中文 Windows 下不可用的编码缺陷——`mcp/server.py` 的 stdio 此前使用 `sys.stdout` 默认编码（中文系统为 GBK），而 MCP 协议要求 UTF-8，导致含中文的 `description`/`instructions` 以 GBK 字节送出、客户端按 UTF-8 解码失败，整个握手与 `tools/list` 响应被丢弃，工具在 Claude Code 等客户端中完全注册不上。现于 `run_stdio` 启动时把 stdin/stdout 强制 `reconfigure` 为 UTF-8，并将 stdout 换行固定为 `\n`。
 - 2026-08-21（v2.0.21）：最近对比记录新增收藏按钮和独立收藏列表，支持结构/数据对比收藏、回填和删除，收藏项不受最近记录数量上限影响。
 - 2026-08-09（v2.0.20）：修复打包版 MCP 配置中心页面资源路径错误导致的 404，以及 JS API 循环引用导致的窗口未响应。
