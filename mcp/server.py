@@ -37,7 +37,7 @@ DEFAULT_SCHEMA_TTL = 60
 DEFAULT_STORE_FILE = Path.home() / ".dbsync_tool" / "connections.json"
 AI_WRITE_AUDIT_FILE = Path.home() / ".dbsync_tool" / "ai_write_audit.log"
 PROTOCOL_VERSION = "2024-11-05"
-MCP_SERVER_VERSION = "2.0.23"
+MCP_SERVER_VERSION = "2.0.24"
 
 _QUERY_FORBIDDEN = re.compile(
     r"\b(?:insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|"
@@ -47,8 +47,10 @@ _QUERY_FORBIDDEN = re.compile(
 _QUERY_START = re.compile(r"^\s*(?:select|with)\b", re.IGNORECASE)
 _WRITE_START = re.compile(r"^\s*(?:insert|update|delete)\b", re.IGNORECASE)
 _WRITE_FORBIDDEN = re.compile(
+    # 注意：不能使用裸 "into"，否则会误杀所有 INSERT INTO；
+    # 只拦截写入文件危险的 INTO OUTFILE / INTO DUMPFILE。
     r"\b(?:select|with|merge|drop|alter|truncate|create|grant|revoke|call|exec|"
-    r"execute|into|for\s+update)\b",
+    r"execute|into\s+(?:outfile|dumpfile)|for\s+update)\b",
     re.IGNORECASE,
 )
 

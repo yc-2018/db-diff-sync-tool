@@ -143,6 +143,21 @@ with tempfile.TemporaryDirectory() as tmp:
     assert execute_sql["affected_rows"] == 1 and execute_sql["executed"] is True
     changed = service.data("source-2", "items", "table", where="id = 1")
     assert changed["rows"][0]["label"] == "changed"
+    # INSERT INTO 应被允许（曾经因把裸 into 当禁词而全部误杀）
+    ins = service.execute_test_sql(
+        "source-2", "INSERT INTO items (id, label) VALUES (?, ?)", [9001, "inserted"])
+    assert ins["affected_rows"] == 1 and ins["executed"] is True
+    assert service.data("source-2", "items", "table", where="id = 9001")["rows"][0]["label"] == "inserted"
+    try:
+        service.execute_test_sql("source-2", "INSERT INTO items SELECT id, label FROM items")
+        raise AssertionError("INSERT ... SELECT should be rejected")
+    except mcp_server.MCPServerError:
+        pass
+    try:
+        service.execute_test_sql("source-2", "INSERT INTO items (id) SELECT 1 INTO OUTFILE '/tmp/x'")
+        raise AssertionError("INTO OUTFILE should be rejected")
+    except mcp_server.MCPServerError:
+        pass
     try:
         service.execute_test_sql("source-1", "UPDATE items SET label = 'x' WHERE id = 1")
         raise AssertionError("source without allow_ai_write should be rejected")
