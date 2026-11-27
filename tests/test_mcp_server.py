@@ -39,6 +39,13 @@ with tempfile.TemporaryDirectory() as tmp:
     conn.commit()
     conn.close()
 
+    dev_path = root / "agent_dev.db"
+    conn = sqlite3.connect(str(dev_path))
+    conn.execute("CREATE TABLE items (id INTEGER PRIMARY KEY, label TEXT)")
+    conn.executemany("INSERT INTO items VALUES (?, ?)", ((i, "dev-%d" % i) for i in range(1, 4)))
+    conn.commit()
+    conn.close()
+
     store = root / "connections.json"
     store.write_text(json.dumps([
         {
@@ -52,9 +59,13 @@ with tempfile.TemporaryDirectory() as tmp:
             "tag": "test", "allow_ai_write": True,
         },
         {
+            "id": "source-dev", "name": "开发 SQLite", "type": "sqlite", "path": str(dev_path),
+            "user": "ignored", "tag": "dev", "allow_ai_write": True,
+        },
+        {
             "id": "source-prod", "name": "正式 SQLite 源", "type": "sqlite", "path": str(db_path),
             "user": "ignored", "password_enc": base64.b64encode(b"secret3").decode("ascii"),
-            "tag": "prod",
+            "tag": "prod", "allow_ai_write": True,
         },
     ], ensure_ascii=False), encoding="utf-8")
     service = mcp_server.ReadOnlyDatabaseService(store_file=store)
@@ -62,6 +73,10 @@ with tempfile.TemporaryDirectory() as tmp:
     listed = service.public_profiles()
     assert listed[0]["id"] == "source-1" and listed[0]["is_test"] is True
     assert "password" not in listed[0] and "password_enc" not in listed[0]
+    dev_listed = next(item for item in listed if item["id"] == "source-dev")
+    assert dev_listed["allow_ai_write"] is True and dev_listed["is_test"] is False
+    prod_listed = next(item for item in listed if item["id"] == "source-prod")
+    assert prod_listed["allow_ai_write"] is False
     assert service.list_objects("source-1", "table") == ["items", "stores"]
     assert service.list_objects("source-1", "view") == ["item_view"]
 
@@ -166,6 +181,19 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         service.execute_test_sql("source-2", "DROP TABLE items")
         raise AssertionError("DDL should be rejected")
+    except mcp_server.MCPServerError:
+        pass
+
+    # dev 标签与 test 一样允许受控写入
+    dev_exec = service.execute_test_sql(
+        "source-dev", "UPDATE items SET label = ? WHERE id = ?", ["dev-changed", 1])
+    assert dev_exec["executed"] is True
+    assert service.data("source-dev", "items", "table", where="id = 1")["rows"][0]["label"] == "dev-changed"
+    dev_copy = service.copy_table_to_test("source-1", "source-dev", "items", dry_run=True)
+    assert dev_copy["structure_compatible"] is True and dev_copy["source_rows"] == 600
+    try:
+        service.execute_test_sql("source-prod", "UPDATE items SET label = 'x' WHERE id = 1")
+        raise AssertionError("prod source should be rejected even with allow_ai_write")
     except mcp_server.MCPServerError:
         pass
 

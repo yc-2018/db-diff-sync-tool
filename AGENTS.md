@@ -6,7 +6,7 @@
 
 - 本项目是仅面向 Windows 的数据库同步比对桌面工具，使用 Python + pywebview 承载原生窗口，`web/` 提供内嵌页面。
 - 应用支持 Oracle、MySQL 和 SQLite；两侧数据库必须同类型。
-- 核心安全边界：桌面应用只生成结构或数据修复 SQL，绝不自动执行生成的 SQL；MCP 服务默认只读，唯一例外是测试库受控写入：只有 `tag=test` 且连接配置显式开启 `allow_ai_write` 的数据源可使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql`，正式库只能作为来源。
+- 核心安全边界：桌面应用只生成结构或数据修复 SQL，绝不自动执行生成的 SQL；MCP 服务默认只读，唯一例外是测试/开发库受控写入：只有 `tag` 为 `test` 或 `dev` 且连接配置显式开启 `allow_ai_write` 的数据源可使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql`，正式库只能作为来源。
 - `app.py` 是应用入口和 JavaScript API 桥，负责连接配置、会话状态以及比对流程调度。
 - `dbcore.py` 负责数据库方言、元数据读取、结构/数据差异计算和 SQL 生成。
 - `web/index.html`、`web/style.css`、`web/app.js` 构成前端界面。
@@ -62,4 +62,4 @@
 - 涉及前端时还应启动应用，检查连接弹窗、左右侧切换、结构比对、数据比对、SQL 复制和错误提示。
 - 涉及打包或资源路径时运行 `打包.bat`，确认 `dist\数据库同步比对工具\` 包含可执行文件和 `web` 资源并能启动。
 - `tests/debug_comment.py` 是需要外部 Oracle 环境的诊断脚本，不属于默认自动化测试。
-- GitHub Actions 在每次推送时执行上述自动化测试、生成 Windows x64 压缩包，并创建以提交 SHA 标识的预发布版本。
+- GitHub Actions 在每次推送时执行上述自动化测试；推送到 `main` 或推送 tag 时生成 Windows x64 压缩包，并创建标记 Latest 的正式 Release。

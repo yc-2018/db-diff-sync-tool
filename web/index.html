@@ -5,9 +5,42 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>数据库对比工具</title>
 <link rel="icon" href="app-icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=2.0.24">
+<link rel="stylesheet" href="style.css?v=2.0.37">
 </head>
 <body>
+
+<header class="titlebar pywebview-drag-region" id="titlebar">
+  <img class="titlebar-icon" src="app-icon.svg" alt="">
+  <span class="titlebar-title">数据库同步比对工具</span>
+  <span class="titlebar-version" id="topbarVersion"></span>
+  <div class="titlebar-actions pywebview-drag-region">
+    <button type="button" class="btn-mini" id="btnMcpConfig" title="打开 MCP 配置中心">MCP 配置中心</button>
+    <div class="titlebar-menu" id="titlebarMenu">
+      <button type="button" class="btn-mini titlebar-menu-toggle" id="btnMoreMenu" aria-haspopup="menu" aria-expanded="false" title="更多操作">
+        <span>更多</span>
+        <svg viewBox="0 0 10 10"><path d="M1.5 3.5L5 7l3.5-3.5"/></svg>
+      </button>
+      <div class="titlebar-dropdown" id="moreMenu" role="menu" hidden>
+        <button type="button" class="menu-item" id="btnOpenStoreDir" role="menuitem" title="打开本地配置目录">打开配置目录</button>
+        <button type="button" class="menu-item" id="btnAbout" role="menuitem" title="查看版本信息">关于/版本</button>
+        <div class="menu-sep"></div>
+        <button type="button" class="menu-item menu-danger" id="btnClearUserData" role="menuitem" title="删除本地连接配置、会话、比对历史和审计日志">清空用户数据</button>
+      </div>
+    </div>
+  </div>
+  <div class="titlebar-buttons">
+    <button type="button" class="win-btn" id="btnWinMin" title="最小化">
+      <svg viewBox="0 0 10 10"><path d="M0 5.5h10"/></svg>
+    </button>
+    <button type="button" class="win-btn" id="btnWinMax" title="最大化">
+      <svg class="ico-max" viewBox="0 0 10 10"><rect x=".5" y=".5" width="9" height="9"/></svg>
+      <svg class="ico-restore" viewBox="0 0 10 10"><path d="M2.5.5h7v7h-2"/><rect x=".5" y="2.5" width="7" height="7"/></svg>
+    </button>
+    <button type="button" class="win-btn win-close" id="btnWinClose" title="关闭">
+      <svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9"/></svg>
+    </button>
+  </div>
+</header>
 
 <main class="main">
   <div class="querybar" id="querybar">
@@ -78,7 +111,7 @@
       <div class="frow f-allow-write-row" style="display:none">
         <label>AI 写权限</label>
         <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px">
-          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试库）
+          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试/开发库）
         </label>
       </div>
       <div class="f-host-row">
@@ -93,7 +126,14 @@
         </select>
         <input class="f-ora-value" placeholder="ORCL / XEPDB1">
       </div>
-      <div class="frow f-mysql" style="display:none"><label>数据库</label><input class="f-database" placeholder="数据库名"></div>
+      <div class="frow f-mysql" style="display:none">
+        <label>数据库</label>
+        <div class="db-field">
+          <input class="f-database" placeholder="数据库名" autocomplete="off">
+          <div class="db-menu" hidden></div>
+        </div>
+        <button type="button" class="btn-mini btn-load-db" title="填写主机、端口、用户名和密码后加载数据库列表">加载</button>
+      </div>
       <div class="frow f-sqlite" style="display:none"><label>文件</label><input class="f-path" placeholder="D:\data\xxx.db"></div>
       <div class="frow f-userrow"><label>用户名</label><input class="f-user" placeholder="scott"></div>
       <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
@@ -165,7 +205,7 @@
       <div class="frow f-allow-write-row" style="display:none">
         <label>AI 写权限</label>
         <label style="display:flex;align-items:center;gap:6px;color:var(--text-dim);font-size:12px">
-          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试库）
+          <input type="checkbox" class="f-allow-write"> 允许 AI 写入（仅测试/开发库）
         </label>
       </div>
       <div class="f-host-row">
@@ -180,7 +220,14 @@
         </select>
         <input class="f-ora-value" placeholder="ORCL / XEPDB1">
       </div>
-      <div class="frow f-mysql" style="display:none"><label>数据库</label><input class="f-database" placeholder="数据库名"></div>
+      <div class="frow f-mysql" style="display:none">
+        <label>数据库</label>
+        <div class="db-field">
+          <input class="f-database" placeholder="数据库名" autocomplete="off">
+          <div class="db-menu" hidden></div>
+        </div>
+        <button type="button" class="btn-mini btn-load-db" title="填写主机、端口、用户名和密码后加载数据库列表">加载</button>
+      </div>
       <div class="frow f-sqlite" style="display:none"><label>文件</label><input class="f-path" placeholder="D:\data\xxx.db"></div>
       <div class="frow f-userrow"><label>用户名</label><input class="f-user" placeholder="scott"></div>
       <div class="frow f-pwdrow"><label>密码</label><input class="f-pwd" type="password" placeholder="••••••"></div>
@@ -210,7 +257,17 @@
   </div>
 </main>
 
+<div class="about-mask" id="aboutMask" style="display:none">
+  <div class="about-card" role="dialog" aria-modal="true" aria-labelledby="aboutTitle">
+    <div class="about-head">
+      <span id="aboutTitle">关于</span>
+      <button class="about-close" id="aboutClose" title="关闭" aria-label="关闭">×</button>
+    </div>
+    <div class="about-body" id="aboutBody"></div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
-<script src="app.js?v=2.0.24"></script>
+<script src="app.js?v=2.0.37"></script>
 </body>
 </html>

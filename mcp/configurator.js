@@ -26,47 +26,66 @@
     $("#scanState").textContent = state ? "扫描完成" : "正在扫描…";
     $("#scanState").className = "scan-state" + (state ? " ok" : "");
     const grid = $("#agents");
-    if (!state) { grid.className = "agents-grid empty-grid"; grid.innerHTML = '<div class="empty-state">选择项目后显示 Codex、Claude Code 和 OpenCode</div>'; return; }
+    if (!state) { grid.className = "agents-grid empty-grid"; grid.innerHTML = '<div class="empty-state">正在扫描本机 agent…</div>'; return; }
     grid.className = "agents-grid";
     grid.innerHTML = state.agents.map((agent) => {
       const detected = agent.installed;
-      const globalText = agent.global_installed ? "已全局安装" : "全局安装";
+      const projectSupported = agent.project_supported !== false;
+      const globalText = agent.global_installed ? "关闭全局" : "全局安装";
+      const globalClass = agent.global_installed ? "button-danger" : "button-primary";
+      const globalTitle = agent.global_installed ? "移除所有项目共用的 dbsync 全局配置，不影响其他 MCP" : "安装到该 agent 的用户配置，对所有项目生效";
       const projectText = agent.project_installed ? "已项目安装" : "项目安装";
-      const projectDisabled = !project || agent.global_installed || agent.project_installed || !detected;
-      const globalDisabled = agent.global_installed || !detected;
+      const globalDisabled = !agent.global_installed && !detected;
+      const projectDisabled = !projectSupported || !project || agent.global_installed || agent.project_installed || !detected;
       let projectState = "未安装";
       let projectClass = "";
-      if (agent.global_installed) { projectState = "全局已安装，项目安装不可用"; projectClass = "installed"; }
+      if (agent.global_installed) { projectState = projectSupported ? "已全局安装，项目安装不可用" : "已全局安装"; projectClass = "installed"; }
+      else if (!projectSupported) { projectState = "仅支持全局安装"; }
       else if (agent.project_installed) { projectState = "当前项目已安装"; projectClass = "installed"; }
+      else if (!detected) { projectState = "未检测到客户端"; projectClass = "warn"; }
       else if (!project) { projectState = "选择项目后可安装"; }
+      const target = agent.binary || agent.global_config || "未找到命令";
       return `<article class="agent-card">
-        <div class="agent-head"><div class="agent-name">${esc(agent.name)}</div><span class="agent-status ${detected ? "detected" : ""}">${detected ? "已检测" : "未检测到"}</span></div>
-        <div class="agent-binary" title="${esc(agent.binary || "未找到命令")}">${esc(agent.binary || "未找到命令")}</div>
-        <div class="install-row"><div><span class="install-label">所有项目</span><button class="button button-primary install-global" data-agent="${esc(agent.id)}" ${globalDisabled ? "disabled" : ""}>${globalText}</button></div>
+        <div class="agent-head"><div class="agent-identity"><span class="agent-icon"><img src="icons/${esc(agent.id)}.svg" alt="" width="22" height="22"></span><div class="agent-name">${esc(agent.name)}</div></div><span class="agent-status ${detected ? "detected" : ""}">${detected ? "已检测" : "未检测到"}</span></div>
+        <div class="agent-binary" title="${esc(target)}">${esc(target)}</div>
+        <div class="install-row"><div><span class="install-label">所有项目</span><button class="button ${globalClass} install-global" data-agent="${esc(agent.id)}" data-installed="${agent.global_installed ? "1" : "0"}" title="${esc(globalTitle)}" ${globalDisabled ? "disabled" : ""}>${globalText}</button></div>
           <div><span class="install-label">当前项目</span><button class="button button-secondary install-project" data-agent="${esc(agent.id)}" ${projectDisabled ? "disabled" : ""}>${projectText}</button></div></div>
         <div class="install-state ${projectClass}">${esc(projectState)}</div>
       </article>`;
     }).join("");
-    grid.querySelectorAll("button.install-global").forEach((button) => button.addEventListener("click", () => install(button.dataset.agent, "global")));
+    grid.querySelectorAll("button.install-global").forEach((button) => button.addEventListener("click", () => {
+      if (button.dataset.installed === "1") uninstallGlobal(button.dataset.agent);
+      else install(button.dataset.agent, "global");
+    }));
     grid.querySelectorAll("button.install-project").forEach((button) => button.addEventListener("click", () => install(button.dataset.agent, "project")));
   }
 
   async function scan() {
-    if (!$("#projectPath").value.trim()) { state = null; $("#refresh").hidden = true; render(); return; }
-    $("#refresh").hidden = false;
     $("#scanState").textContent = "正在检查…";
-    try { state = await api().scan($("#projectPath").value); render(); notice(""); }
+    try { state = await api().scan($("#projectPath").value.trim()); render(); notice(""); }
     catch (error) { notice(String(error), true); }
   }
 
   async function install(agent, scope) {
-    const scopeText = scope === "global" ? "所有项目" : "当前项目";
-    if (!window.confirm(`确认安装到${scopeText}？`)) return;
+    const scopeText = scope === "global" ? "全局配置（所有项目）" : "当前项目";
+    if (!window.confirm(`确认将 dbsync 写入${scopeText}？`)) return;
     try {
       const result = await api().install(agent, scope, $("#projectPath").value);
       notice(result.msg || (result.ok ? "安装完成" : "安装失败"), !result.ok);
       if (result.state) { state = result.state; render(); }
       else await scan();
+    } catch (error) { notice(String(error), true); }
+  }
+
+  async function uninstallGlobal(agentId) {
+    const agent = state && state.agents.find((item) => item.id === agentId);
+    const name = agent ? agent.name : agentId;
+    if (!window.confirm(`确认关闭 ${name} 的 dbsync 全局配置？\n只会移除全局配置，其他 MCP 配置不会改动。`)) return;
+    try {
+      const result = await api().uninstall(agentId, "global", $("#projectPath").value);
+      if (result.state) { state = result.state; render(); }
+      else await scan();
+      notice(result.msg || (result.ok ? "已关闭全局配置" : "关闭失败"), !result.ok);
     } catch (error) { notice(String(error), true); }
   }
 
@@ -85,7 +104,8 @@
     $("#chooseProject").addEventListener("click", chooseProject);
     $("#clearProject").addEventListener("click", async () => { $("#projectPath").value = ""; await scan(); });
     $("#projectPath").addEventListener("change", scan);
-    render();
+    $("#projectPath").addEventListener("keydown", (event) => { if (event.key === "Enter") scan(); });
+    scan();
   }
 
   window.addEventListener("pywebviewready", init);

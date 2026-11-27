@@ -327,6 +327,7 @@ function setFormMsg(side, msg, cls) {
 
 function onTypeChange(side) {
   const f = paneOf(side);
+  closeDbMenu(side);
   const type = $(".f-type", f).value;
   $(".f-ora", f).style.display = type === "oracle" ? "" : "none";
   $(".f-mysql", f).style.display = type === "mysql" ? "" : "none";
@@ -348,9 +349,9 @@ function updateAllowWrite(side) {
   let tag = "";
   const radios = f.querySelectorAll('input[name="tag-' + side + '"]');
   for (const r of radios) { if (r.checked) { tag = r.value; break; } }
-  const isTest = tag === "test";
-  row.style.display = isTest ? "" : "none";
-  if (!isTest) checkbox.checked = false;
+  const writable = tag === "test" || tag === "dev";
+  row.style.display = writable ? "" : "none";
+  if (!writable) checkbox.checked = false;
 }
 
 /* ---------------- 渲染 ---------------- */
@@ -467,6 +468,88 @@ async function doTest(side) {
     setFormMsg(side, r.msg, r.ok ? "ok" : "err");
   } catch (e) {
     setFormMsg(side, "测试失败: " + e, "err");
+  }
+}
+
+function closeDbMenu(side) {
+  const f = paneOf(side);
+  if (!f) return;
+  f._dbLoadSeq = (f._dbLoadSeq || 0) + 1;
+  const menu = $(".db-menu", f);
+  if (!menu) return;
+  menu.hidden = true;
+  menu.innerHTML = "";
+  menu.style.left = menu.style.top = menu.style.bottom = menu.style.width = menu.style.maxHeight = "";
+}
+
+function renderDbMenu(side, databases) {
+  const f = paneOf(side);
+  const menu = $(".db-menu", f);
+  const input = $(".f-database", f);
+  const current = input.value.trim();
+  menu.innerHTML = databases.map(name =>
+    `<button type="button" class="db-item${name === current ? " selected" : ""}" data-db="${esc(name)}" title="${esc(name)}">${esc(name)}</button>`
+  ).join("");
+  menu.hidden = false;
+  // 菜单相对视口定位, 避免被表单滚动区域裁切
+  const rect = input.getBoundingClientRect();
+  const gap = 4;
+  const below = window.innerHeight - rect.bottom - gap - 8;
+  const above = rect.top - gap - 8;
+  menu.style.left = rect.left + "px";
+  menu.style.width = rect.width + "px";
+  if (below < 120 && above > below) {
+    menu.style.top = "auto";
+    menu.style.bottom = (window.innerHeight - rect.top + gap) + "px";
+    menu.style.maxHeight = Math.max(80, Math.min(220, above)) + "px";
+  } else {
+    menu.style.bottom = "auto";
+    menu.style.top = (rect.bottom + gap) + "px";
+    menu.style.maxHeight = Math.max(80, Math.min(220, below)) + "px";
+  }
+}
+
+async function doLoadDatabases(side) {
+  const f = paneOf(side);
+  if ($(".f-type", f).value !== "mysql") return;
+  const p = formProfile(side);
+  const missing = [];
+  if (!p.host) missing.push("主机");
+  if (!Number.isInteger(p.port) || p.port < 1 || p.port > 65535) missing.push("端口");
+  if (!p.user) missing.push("用户名");
+  if (!p.password) missing.push("密码");
+  if (missing.length) {
+    closeDbMenu(side);
+    setFormMsg(side, "请先填写" + missing.join("、") + "，也可以直接输入数据库名", "err");
+    return;
+  }
+  closeDbMenu(side);
+  const seq = f._dbLoadSeq;
+  const btn = $(".btn-load-db", f);
+  btn.disabled = true;
+  btn.textContent = "加载中";
+  setFormMsg(side, "正在加载数据库列表…", "");
+  try {
+    const r = await api("list_databases", p);
+    if (f._dbLoadSeq !== seq || $(".f-type", f).value !== "mysql" || !f.getClientRects().length) return;
+    if (!r.ok) {
+      setFormMsg(side, r.msg || "加载失败", "err");
+      return;
+    }
+    const databases = Array.isArray(r.databases) ? r.databases : [];
+    if (!databases.length) {
+      setFormMsg(side, "该账号没有可见的数据库，请手动输入数据库名", "err");
+      return;
+    }
+    renderDbMenu(side, databases);
+    setFormMsg(side, "已加载 " + databases.length + " 个数据库，请选择或继续手动输入", "ok");
+  } catch (e) {
+    if (f._dbLoadSeq === seq && $(".f-type", f).value === "mysql" && f.getClientRects().length) {
+      setFormMsg(side, "加载失败: " + e, "err");
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "加载";
   }
 }
 
@@ -1139,6 +1222,153 @@ async function copySQL(side) {
   toast("SQL已复制到剪贴板");
 }
 
+/* ---------------- 顶部标题栏 ---------------- */
+
+let appInfo = null;
+let isMaximized = false;
+
+function setMaximized(max) {
+  isMaximized = !!max;
+  const btn = $("#btnWinMax");
+  if (!btn) return;
+  btn.classList.toggle("is-max", isMaximized);
+  btn.title = isMaximized ? "向下还原" : "最大化";
+}
+
+function syncMaximizedFromViewport() {
+  const near = (a, b) => Math.abs(a - b) <= 10;
+  setMaximized(near(window.outerWidth, screen.availWidth) &&
+               near(window.outerHeight, screen.availHeight));
+}
+
+async function winMinimize() {
+  try { await api("window_minimize"); } catch (e) {}
+}
+
+async function winToggleMaximize() {
+  const next = !isMaximized;
+  try {
+    await api(next ? "window_maximize" : "window_restore");
+    setMaximized(next);
+  } catch (e) {}
+}
+
+function winClose() {
+  try { api("window_close").catch(() => {}); } catch (e) {}
+}
+
+function setMoreMenu(open) {
+  const menu = $("#moreMenu");
+  if (!menu) return;
+  menu.hidden = !open;
+  $("#titlebarMenu").classList.toggle("open", open);
+  $("#btnMoreMenu").setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function closeMoreMenu() { setMoreMenu(false); }
+
+async function loadAppInfo() {
+  try {
+    const info = await api("get_app_info");
+    if (!info || !info.ok) return;
+    appInfo = info;
+    $("#topbarVersion").textContent = "v" + info.version;
+  } catch (e) {
+    // 浏览器预览或桥接不可用时忽略，版本号留空。
+  }
+}
+
+async function showAbout() {
+  if (!appInfo) await loadAppInfo();
+  const info = appInfo || {};
+  const rows = [
+    ["程序版本", info.version ? "v" + info.version : "—"],
+    ["MCP 服务", info.mcp_version ? "v" + info.mcp_version : "—"],
+    ["运行环境", info.python ? "Python " + info.python : "—"],
+    ["配置目录", info.store_dir || "—"],
+  ];
+  $("#aboutBody").innerHTML = rows.map(([k, v]) =>
+    `<div class="about-row"><b>${esc(k)}</b><span>${esc(v)}</span></div>`).join("") +
+    '<div class="about-note">桌面端只生成修复 SQL，不会自动执行；MCP 受控写入仅限开启 allow_ai_write 的测试库或开发库。</div>';
+  $("#aboutMask").style.display = "flex";
+}
+
+function hideAbout() { $("#aboutMask").style.display = "none"; }
+
+async function doOpenMcpConfig() {
+  try {
+    const r = await api("open_mcp_configurator");
+    toast(r && r.ok ? "已打开 MCP 配置中心" : ((r && r.msg) || "打开 MCP 配置中心失败"));
+  } catch (e) {
+    toast("打开 MCP 配置中心失败: " + e);
+  }
+}
+
+async function doOpenStoreDir() {
+  try {
+    const r = await api("open_store_dir");
+    toast(r && r.ok ? "已打开配置目录" : ((r && r.msg) || "打开配置目录失败"));
+  } catch (e) {
+    toast("打开配置目录失败: " + e);
+  }
+}
+
+async function doClearUserData() {
+  if (!confirm("确认清空所有本地用户数据？\n\n将删除：连接配置与密码、会话状态、比对历史和收藏、AI 写审计日志。\n此操作不可恢复，清空后应用回到初始状态。")) return;
+  setBusy(true);
+  try {
+    const r = await api("clear_user_data");
+    if (!r || !r.ok) { toast((r && r.msg) || "清空失败，请关闭应用后重试"); return; }
+    try { localStorage.clear(); } catch (e) {}
+    toast("本地用户数据已清空");
+    setTimeout(() => location.reload(), 500);
+  } catch (e) {
+    toast("清空失败: " + e);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function bindTopbar() {
+  $("#btnMcpConfig").addEventListener("click", doOpenMcpConfig);
+  $("#btnMoreMenu").addEventListener("click", e => {
+    e.stopPropagation();
+    setMoreMenu($("#moreMenu").hidden);
+  });
+  $("#moreMenu").addEventListener("click", e => {
+    if (e.target.closest(".menu-item")) closeMoreMenu();
+  });
+  document.addEventListener("mousedown", e => {
+    if (!e.target.closest("#titlebarMenu")) closeMoreMenu();
+  });
+  window.addEventListener("blur", closeMoreMenu);
+  $("#btnOpenStoreDir").addEventListener("click", doOpenStoreDir);
+  $("#btnAbout").addEventListener("click", showAbout);
+  $("#btnClearUserData").addEventListener("click", doClearUserData);
+  $("#btnWinMin").addEventListener("click", winMinimize);
+  $("#btnWinMax").addEventListener("click", winToggleMaximize);
+  $("#btnWinClose").addEventListener("click", winClose);
+  const titlebar = $("#titlebar");
+  titlebar.addEventListener("dblclick", e => {
+    if (e.target.closest("button, .titlebar-actions, .titlebar-buttons")) return;
+    winToggleMaximize();
+  });
+  titlebar.addEventListener("mousedown", e => {
+    if (isMaximized && !e.target.closest("button, .titlebar-actions, .titlebar-buttons")) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, true);
+  window.addEventListener("resize", syncMaximizedFromViewport);
+  $("#aboutClose").addEventListener("click", hideAbout);
+  $("#aboutMask").addEventListener("click", e => { if (e.target === $("#aboutMask")) hideAbout(); });
+  document.addEventListener("keydown", e => {
+    if (e.key !== "Escape") return;
+    closeMoreMenu();
+    if ($("#aboutMask").style.display !== "none") hideAbout();
+  });
+}
+
 /* ---------------- 初始化 ---------------- */
 
 function bindPane(side) {
@@ -1152,6 +1382,33 @@ function bindPane(side) {
   $(".btn-test", f).addEventListener("click", () => doTest(side));
   $(".btn-save", f).addEventListener("click", () => doSaveProfile(side));
   $(".btn-connect", f).addEventListener("click", () => doConnect(side));
+  // MySQL 数据库列表加载
+  const dbInput = $(".f-database", f);
+  const dbMenu = $(".db-menu", f);
+  $(".btn-load-db", f).addEventListener("click", () => doLoadDatabases(side));
+  dbInput.addEventListener("input", () => closeDbMenu(side));
+  dbInput.addEventListener("keydown", e => { if (e.key === "Escape") closeDbMenu(side); });
+  dbMenu.addEventListener("click", e => {
+    const item = e.target.closest(".db-item");
+    if (!item) return;
+    dbInput.value = item.dataset.db || "";
+    closeDbMenu(side);
+    setFormMsg(side, "已选择数据库: " + dbInput.value, "ok");
+  });
+  document.addEventListener("click", e => {
+    if (!e.target.closest("#form-" + side + " .db-field")
+        && !e.target.closest("#form-" + side + " .btn-load-db")) {
+      closeDbMenu(side);
+    }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") closeDbMenu(side);
+  });
+  window.addEventListener("scroll", e => {
+    if (e.target && e.target.closest && e.target.closest(".db-menu")) return;
+    closeDbMenu(side);
+  }, true);
+  window.addEventListener("resize", () => closeDbMenu(side));
   $("#disc-" + side).addEventListener("click", () => doDisconnect(side));
   $("#refresh-" + side).addEventListener("click", () => doRefresh(side));
   $("#edit-" + side).addEventListener("click", () => doEdit(side));
@@ -1297,6 +1554,9 @@ async function init() {
   loadStructFavorites();
   loadDataFavorites();
   for (const side of SIDES) bindPane(side);
+  bindTopbar();
+  loadAppInfo();
+  syncMaximizedFromViewport();
   bindTablePicker("struct");
   bindTablePicker("data");
   document.addEventListener("click", e => {

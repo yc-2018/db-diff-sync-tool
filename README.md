@@ -1,6 +1,6 @@
 # 数据库同步比对工具
 
-一个 Windows 桌面应用（原生窗口 + 网页 UI），用于比对**两个同类型数据库**之间的表结构与表数据差异，并分别生成「让某一侧变成对方」的修复 SQL。**桌面界面只生成 SQL 供复制，绝不替你执行。** MCP 服务默认也只读；只有开启 `allow_ai_write` 的 `test` 测试库可以使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql` 进行受控写入。
+一个 Windows 桌面应用（原生窗口 + 网页 UI），用于比对**两个同类型数据库**之间的表结构与表数据差异，并分别生成「让某一侧变成对方」的修复 SQL。**桌面界面只生成 SQL 供复制，绝不替你执行。** MCP 服务默认也只读；只有开启 `allow_ai_write` 的 `test` 测试库或 `dev` 开发库可以使用 `copy_table_to_test`、`preview_sql`、`execute_test_sql` 进行受控写入。
 
 ## 支持的数据库
 
@@ -75,13 +75,17 @@
    - 差异不超过 2000 条时展示全部明细；超过时仅展示前 200 条；
    - 两侧各自输出行级修复 SQL（INSERT/UPDATE/DELETE），仅供复制；单方向超过 5000 条时会截断并要求使用 WHERE 分批处理。
 
+窗口顶部使用自定义标题栏：左侧显示程序名和版本，右侧提供「MCP 配置中心」「更多」以及最小化、最大化、关闭按钮；
+「更多」下拉菜单中提供「打开配置目录」「关于/版本」「清空用户数据」。「关于/版本」查看程序、MCP 服务和 Python 版本，
+「清空用户数据」二次确认后删除连接配置、会话、比对历史和审计日志，应用回到初始状态。标题栏可拖动窗口、双击最大化，窗口四边可拖拽缩放。
+
 ## 给 AI agent 使用的 MCP 服务
 
 仓库同时提供一个与桌面窗口完全解耦的 MCP 服务：`mcp/server.py`，以及一个用于配置 agent 的图形界面
 `mcp/configurator.py`。它只读取本工具已经保存的
 `%USERPROFILE%\.dbsync_tool\connections.json`，不能通过 MCP 新增或修改数据源；密码只在服务进程内用于连接，
 `list_data_sources` 以及所有工具结果都不会返回密码。MCP 默认只读；可写工具 `copy_table_to_test`、
-`preview_sql` 和 `execute_test_sql` 只能用于开启 `allow_ai_write` 的 `test` 目标库。
+`preview_sql` 和 `execute_test_sql` 只能用于开启 `allow_ai_write` 的 `test` 测试库或 `dev` 开发库。
 
 先在桌面工具中保存并测试数据源，再把下面的命令配置到支持 stdio MCP 的 AI agent。服务由 agent
 自动启动和管理，不需要用户手工运行。MCP 初始化响应会告诉 agent 先调用 `list_data_sources`，再按数据源
@@ -103,13 +107,13 @@
 `preview_data_compare`、`compare_data`、`copy_table_to_test`、`preview_sql` 和 `execute_test_sql`。读取表/视图数据可传
 `where`、`columns`、`order_by`、`limit`、`offset` 和 `count_only`，单次 `limit` 最大 500（缺省也是 500）；
 `read_tables` 可一次读取多张表，`query` 只接受单条只读 `SELECT`/`WITH` 查询，禁止写入、DDL、注释和多语句。
-`copy_table_to_test` 用于把数据复制到 `tag=test` 且 `allow_ai_write=true` 的目标库：源表与目标表的列结构
+`copy_table_to_test` 用于把数据复制到 `tag` 为 `test` 或 `dev` 且 `allow_ai_write=true` 的目标库：源表与目标表的列结构
 （列名、类型、可空性、主键）必须一致；`where` 过滤源表行，`target_where` 可限制 `replace` 模式删除的目标行
 （不传则清空目标表）；默认 `dry_run=true` 只做检查，确认后才传 `dry_run=false` 执行。
-`preview_sql` / `execute_test_sql` 只允许在开启 `allow_ai_write` 的测试库执行单条 `INSERT/UPDATE/DELETE`：
+`preview_sql` / `execute_test_sql` 只允许在开启 `allow_ai_write` 的测试库/开发库执行单条 `INSERT/UPDATE/DELETE`：
 `preview_sql` 在事务中执行后回滚，只返回影响行数；`execute_test_sql` 确认后提交，失败自动回滚，操作会写入
-`%USERPROFILE%\.dbsync_tool\ai_write_audit.log`。生产库始终只读，禁止作为写目标。测试库需要在连接配置中把
-标签选为“测试”，才会显示“AI 写权限”复选框；只有勾选并保存后 MCP 才允许写操作。
+`%USERPROFILE%\.dbsync_tool\ai_write_audit.log`。生产库始终只读，禁止作为写目标。需要在连接配置中把
+标签选为“测试”或“开发”，才会显示“AI 写权限”复选框；只有勾选并保存后 MCP 才允许写操作。
 表名、视图名和 WHERE 条件沿用应用的标识符及分号/注释拦截规则。除 `copy_table_to_test` 外，服务只执行 SELECT
 和元数据查询，不会执行任何修复 SQL。
 
@@ -123,9 +127,13 @@ MCP 服务会在进程内复用每个 `source_id` 的数据库连接，并缓存
 .venv\Scripts\python.exe mcp\configurator.py
 ```
 
-界面会扫描 Codex、Claude Code、OpenCode 是否已安装，并显示全局安装和当前项目安装状态。全局安装会让所有
-项目可用；项目安装需要先选择项目目录。安装前会读取目标 agent 的真实配置，已经存在 `dbsync` 时只提示已安装，
-不会重复写入。
+界面会扫描 Codex、Claude Code、OpenCode、Qoder、Qoder CN、WorkBuddy / CodeBuddy、Pi、DeepSeek Harness (dsh)、
+Cursor、Trae、VS Code Copilot、Gemini CLI 和 Qwen Code，共 13 种 agent，并显示图标、检测状态和全局/项目安装状态。
+不选项目也可以直接安装或关闭全局配置；选择项目后可额外安装到当前项目。Qoder CN 和 dsh 仅支持全局安装。
+安装前会读取目标 agent 的真实配置，已经存在 `dbsync` 时只提示已安装，不会重复写入；dsh 的 YAML 配置采用文本插入，
+保留原有注释和其他内容。已全局安装的 agent 会显示「关闭全局」，点击并确认后只从该 agent 的全局配置移除 `dbsync`，
+不影响其他 MCP 条目和原有注释，也不会改动已安装到项目的配置。agent 图标取自 MIT 许可的 yetone/magpie 图标资源，
+仅用于标识对应客户端。
 
 ## 界面展示
 
@@ -215,6 +223,9 @@ mcp/配置中心.bat  打开 MCP 配置中心
 `jdbc:oracle:thin:user/password@host:1521:SID`；MySQL 支持 `mysql://...` 和
 `jdbc:mysql://host:3306/database?...`，末尾的 JDBC 连接参数会自动忽略。
 
+MySQL 连接时，填好主机、端口、用户名和密码后，可点数据库字段右侧的「加载」，
+查看当前账号可见的数据库并直接选择；也可以不加载，继续手动输入数据库名。
+
 ## 限制说明
 
 - 数据比对为全量内存比对，单表上限 20 万行；单方向输出 SQL 上限 5000 条（超出截断并注明）。
@@ -257,7 +268,7 @@ GitHub Actions 会在每次推送时运行测试。只有推送到 `main` 分支
 - `db-sync-tool-windows-x64-oracle11g-*.zip`：内置 Oracle Instant Client 19c，适合 Oracle 11.2+、MySQL 和 SQLite。
 
 如果 Oracle 官方下载链接临时不可用或校验失败，GitHub Actions 会跳过 Oracle 11g 包，但仍继续发布 thin 包。
-Actions artifact 只保留 3 天；`main` 分支产生的 `auto-v*` / 旧 `build-*` 自动预发布只保留最近 10 个，tag 发布不会被自动清理。自动发布会先删除同名旧 release 再重建，确保最新一版排在 Release list 前面。标题、tag 和 ZIP 文件名会使用 `app.py` 中的版本号。
+`main` 自动构建和 tag 发布都会创建正式 Release 并标记为 Latest，不再使用 Pre-release；ZIP 文件名使用 ASCII，避免上传时中文被吞掉。Actions artifact 只保留 3 天；`main` 分支产生的 `auto-v*` / 旧 `build-*` 自动发行版只保留最近 10 个，tag 发布不会被自动清理。自动发布会先删除同名旧 release 再重建，确保最新一版排在 Release list 前面。标题、tag 和 ZIP 文件名会使用 `app.py` 中的版本号。
 
 ## 依赖版本参考（venv Python 3.12 实测通过）
 
@@ -273,6 +284,19 @@ GitHub Actions 和 `初始化环境.bat` 使用 `requirements.txt` 锁定下面�
 
 ## 变更日志
 
+- 2026-11-27（v2.0.37）：MCP 配置中心新增「关闭全局」；已全局安装的 agent 可一键移除 `dbsync`，保留其他 MCP 配置和原有注释，关闭时无需选择项目。
+- 2026-11-27（v2.0.36）：修复 MySQL 数据库下拉列表在鼠标滚轮或拖动滚动条时自动消失的问题；现在只有外层表单滚动才会关闭列表。
+- 2026-11-27（v2.0.35）：MySQL 连接表单的数据库字段新增「加载」按钮，填好主机、端口、用户名和密码后可直接读取并选择当前账号可见的数据库；字段仍可手动输入。
+- 2026-11-27（v2.0.34）：连接数据库弹窗加宽到 600px，主机、端口行不再顶到或超出弹窗右边框。
+- 2026-11-27（v2.0.33）：标题栏高度调整为 24px，标题文字和按钮整体上移，底部留出呼吸空间，文字不再贴住标题栏下边缘。
+- 2026-11-27（v2.0.32）：继续压紧主窗口标题栏到 20px，标题文字距窗口上边缘约 10px，并同步缩小标题栏按钮和窗口控制按钮。
+- 2026-11-27（v2.0.31）：收紧主窗口自定义标题栏高度和内容区顶部间距，顶部不再显得空。
+- 2026-11-27（v2.0.30）：收紧 MCP 配置中心页面顶部留白，避免叠加系统标题栏后显得空。
+- 2026-11-27（v2.0.29）：MCP 配置中心扩充到 13 种 agent，新增 Qoder、Qoder CN、WorkBuddy / CodeBuddy、Pi、DeepSeek Harness (dsh)、Cursor、Trae、VS Code Copilot、Gemini CLI 和 Qwen Code，并为每个 agent 显示图标；未选择项目时也可安装全局配置；Qoder CN 和 dsh 仅支持全局安装，dsh 配置采用保留注释的文本插入。
+- 2026-11-27（v2.0.28）：标题栏的「打开配置目录」「关于/版本」「清空用户数据」收进「更多」下拉菜单，保留「MCP 配置中心」独立按钮，标题栏更简洁。
+- 2026-11-27（v2.0.27）：窗口改为无边框加自定义标题栏，快捷按钮和窗口按钮移入系统标题栏位置，不再额外占用内容区；保留拖边缩放、最小化/最大化（不遮挡任务栏）及双击标题栏最大化。
+- 2026-11-27（v2.0.26）：窗口顶部新增工具栏：MCP 配置中心、打开配置目录、关于/版本和清空用户数据（二次确认，清空后应用回到初始状态）。
+- 2026-11-27（v2.0.25）：修复连接弹窗“AI 写权限”标签换行，统一加宽表单标签列；AI 写权限扩展到 `dev` 开发标签，桌面端保存校验、MCP 受控写入（`copy_table_to_test`、`preview_sql`、`execute_test_sql`）均同步允许 `tag=test` 或 `tag=dev` 且开启 `allow_ai_write` 的数据源。
 - 2026-11-21（v2.0.23）：优化 MCP 服务：按 `source_id` 复用数据库连接并缓存结构/对象列表；新增 `get_table_schemas`、`read_tables`、`query`、`compare_structure`、`preview_data_compare`、`compare_data`；`read_table`/`read_view` 支持列选择、排序、分页和 `count_only`；新增测试库受控写入：连接配置增加 `allow_ai_write`（仅 `tag=test` 可开启），新增 `copy_table_to_test`、`preview_sql`、`execute_test_sql`，只允许 DML、预览回滚、失败回滚并记录 `ai_write_audit.log`；补充对应测试。
 - 2026-10-07（v2.0.22）：修复 MCP 服务在中文 Windows 下不可用的编码缺陷——`mcp/server.py` 的 stdio 此前使用 `sys.stdout` 默认编码（中文系统为 GBK），而 MCP 协议要求 UTF-8，导致含中文的 `description`/`instructions` 以 GBK 字节送出、客户端按 UTF-8 解码失败，整个握手与 `tools/list` 响应被丢弃，工具在 Claude Code 等客户端中完全注册不上。现于 `run_stdio` 启动时把 stdin/stdout 强制 `reconfigure` 为 UTF-8，并将 stdout 换行固定为 `\n`。
 - 2026-08-21（v2.0.21）：最近对比记录新增收藏按钮和独立收藏列表，支持结构/数据对比收藏、回填和删除，收藏项不受最近记录数量上限影响。

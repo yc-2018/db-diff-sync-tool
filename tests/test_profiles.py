@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,6 +28,65 @@ with tempfile.TemporaryDirectory() as tmp:
     assert empty_save["ok"] is False
     assert "配置名" in empty_save["msg"]
     assert app.load_profiles() == []
+
+    db_list_invalid = [
+        ({"type": "oracle"}, "MySQL"),
+        ({"type": "mysql", "port": 3306, "user": "demo", "password": "x"}, "主机"),
+        ({"type": "mysql", "host": "db.example.test", "port": "abc", "user": "demo", "password": "x"}, "有效端口"),
+        ({"type": "mysql", "host": "db.example.test", "port": 3306, "password": "x"}, "用户名"),
+        ({"type": "mysql", "host": "db.example.test", "port": 3306, "user": "demo"}, "密码"),
+    ]
+    for profile, expected in db_list_invalid:
+        result = api.list_databases(profile)
+        assert result["ok"] is False
+        assert expected in result["msg"]
+
+    class FakeCursor:
+        sql = ""
+        def __enter__(self):
+            return self
+        def __exit__(self, *exc):
+            return False
+        def execute(self, sql):
+            self.sql = sql
+        def fetchall(self):
+            return [("uWMS_test",), (None,), ("mysql",), ("uWMS_prod",)]
+
+    class FakeConn:
+        closed = False
+        cur = FakeCursor()
+        def cursor(self):
+            return self.cur
+        def close(self):
+            self.closed = True
+
+    fake_conn = FakeConn()
+    captured = {}
+    def fake_connect(**kw):
+        captured.update(kw)
+        return fake_conn
+
+    old_pymysql = sys.modules.get("pymysql")
+    sys.modules["pymysql"] = types.SimpleNamespace(connect=fake_connect)
+    try:
+        names = app.dbcore.list_databases({
+            "type": "mysql", "host": "db.example.test", "port": 3306,
+            "user": "demo", "password": "demo_password",
+        })
+    finally:
+        if old_pymysql is None:
+            sys.modules.pop("pymysql", None)
+        else:
+            sys.modules["pymysql"] = old_pymysql
+
+    assert names == ["mysql", "uWMS_prod", "uWMS_test"]
+    assert fake_conn.cur.sql == "SHOW DATABASES"
+    assert fake_conn.closed is True
+    assert "database" not in captured
+    assert captured["host"] == "db.example.test"
+    assert captured["port"] == 3306
+    assert captured["user"] == "demo"
+    assert captured["password"] == "demo_password"
 
     invalid_profiles = [
         ({"type": "oracle", "name": "缺主机"}, "主机"),

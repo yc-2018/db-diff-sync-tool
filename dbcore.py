@@ -647,6 +647,40 @@ class SQLiteDB(BaseDB):
 
 # ---------------------------------------------------------------- 连接工厂
 
+def list_databases(profile: dict) -> list:
+    """仅用 MySQL 账号连接并读取可见数据库名, 不选择具体数据库。"""
+    ptype = (profile.get("type") or "").strip().lower()
+    if ptype != "mysql":
+        raise DBError("只有 MySQL 连接支持加载数据库列表")
+    host = (profile.get("host") or "").strip()
+    if not host:
+        raise DBError("请填写主机")
+    try:
+        port = int(str(profile.get("port") or "").strip())
+    except (TypeError, ValueError):
+        raise DBError("请输入有效端口")
+    if not 1 <= port <= 65535:
+        raise DBError("端口必须在 1 到 65535 之间")
+    user = (profile.get("user") or "").strip()
+    if not user:
+        raise DBError("请填写用户名")
+    password = profile.get("password") or ""
+    if not password:
+        raise DBError("请填写密码")
+
+    import pymysql
+    conn = pymysql.connect(
+        host=host, port=port, user=user, password=password,
+        charset="utf8mb4", connect_timeout=10, autocommit=True)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SHOW DATABASES")
+            names = [str(row[0]) for row in cur.fetchall() if row and row[0] is not None]
+    finally:
+        conn.close()
+    return sorted(names, key=str.lower)
+
+
 def connect(profile: dict) -> BaseDB:
     """根据连接配置建立连接, 失败抛异常"""
     ptype = (profile.get("type") or "oracle").lower()

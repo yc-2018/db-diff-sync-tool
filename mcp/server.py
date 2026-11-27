@@ -4,7 +4,7 @@
 The server intentionally has no dependency on the desktop window or its JS
 bridge. It reads the profile file created by ``app.py`` and exposes metadata,
 bounded SELECT operations, and a guarded ``copy_table_to_test`` data copy tool
-that can only write to a target profile tagged ``test``.
+that can only write to a target profile tagged ``test`` or ``dev``.
 """
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ DEFAULT_SCHEMA_TTL = 60
 DEFAULT_STORE_FILE = Path.home() / ".dbsync_tool" / "connections.json"
 AI_WRITE_AUDIT_FILE = Path.home() / ".dbsync_tool" / "ai_write_audit.log"
 PROTOCOL_VERSION = "2024-11-05"
-MCP_SERVER_VERSION = "2.0.24"
+MCP_SERVER_VERSION = "2.0.37"
 
 _QUERY_FORBIDDEN = re.compile(
     r"\b(?:insert|update|delete|merge|drop|alter|truncate|create|grant|revoke|"
@@ -101,7 +101,7 @@ def public_profile(profile):
     result = {key: profile.get(key) for key in allowed if key in profile}
     result["type_name"] = dbcore.TYPE_NAMES.get(ptype, ptype)
     result["is_test"] = profile.get("tag") == "test"
-    result["allow_ai_write"] = bool(profile.get("allow_ai_write")) and result["is_test"]
+    result["allow_ai_write"] = bool(profile.get("allow_ai_write")) and profile.get("tag") in ("test", "dev")
     return result
 
 
@@ -815,10 +815,10 @@ class ReadOnlyDatabaseService:
 
     def _write_profile(self, source_id):
         profile = self._profile(source_id)
-        if profile.get("tag") != "test":
-            raise MCPServerError("只允许操作 tag=test 的测试库，生产库始终只读")
+        if profile.get("tag") not in ("test", "dev"):
+            raise MCPServerError("只允许操作 tag=test 或 dev 的测试/开发库，生产库始终只读")
         if not self._is_true(profile.get("allow_ai_write")):
-            raise MCPServerError("该测试库未开启 allow_ai_write，不允许 AI 写操作")
+            raise MCPServerError("该数据源未开启 allow_ai_write，不允许 AI 写操作")
         return profile
 
     def _audit_write(self, action, profile, sql, params, affected_rows, status, error=None):
@@ -903,7 +903,7 @@ class ReadOnlyDatabaseService:
         return self._execute_test_sql(source_id, sql, params, preview=True)
 
     def execute_test_sql(self, source_id, sql, params=None):
-        """Execute DML against a test source with allow_ai_write enabled."""
+        """Execute DML against a test/dev source with allow_ai_write enabled."""
         return self._execute_test_sql(source_id, sql, params, preview=False)
 
     @staticmethod
@@ -929,10 +929,10 @@ class ReadOnlyDatabaseService:
 
     def copy_table_to_test(self, source_id, target_id, table, mode="replace",
                            where="", target_where="", batch_size=500, dry_run=True):
-        """Copy source table rows into a target source tagged ``test``.
+        """Copy source table rows into a target source tagged ``test`` or ``dev``.
 
         This is intentionally the only MCP tool that can write.  It requires:
-        - target profile tag == "test";
+        - target profile tag == "test" or "dev";
         - source and target table column structure (names/types/nullability/PK)
           to be compatible;
         - source and target are different data sources.
@@ -946,10 +946,10 @@ class ReadOnlyDatabaseService:
             raise MCPServerError("源数据源和目标数据源不能相同")
         if self._database_identity(source_profile) == self._database_identity(target_profile):
             raise MCPServerError("源数据源和目标数据源指向同一个数据库，拒绝复制")
-        if target_profile.get("tag") != "test":
-            raise MCPServerError("目标数据源必须标记为 test，拒绝写入非测试库")
+        if target_profile.get("tag") not in ("test", "dev"):
+            raise MCPServerError("目标数据源必须标记为 test 或 dev，拒绝写入其他环境")
         if not self._is_true(target_profile.get("allow_ai_write")):
-            raise MCPServerError("目标测试库未开启 allow_ai_write，拒绝写入")
+            raise MCPServerError("目标数据源未开启 allow_ai_write，拒绝写入")
         mode = (mode or "replace").strip().lower()
         if mode not in ("replace", "append"):
             raise MCPServerError("mode 只支持 replace 或 append")
@@ -1240,13 +1240,13 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "copy_table_to_test",
-        "description": "把一个表的数据复制到 tag=test 的目标库；where 过滤源表行，target_where 限制 replace 删除的目标行；默认 dry_run=true，正式库不会作为目标。",
+        "description": "把一个表的数据复制到 tag=test/dev 且 allow_ai_write=true 的目标库；where 过滤源表行，target_where 限制 replace 删除的目标行；默认 dry_run=true，正式库不会作为目标。",
         "inputSchema": {
             "type": "object",
             "required": ["source_id", "target_id", "table"],
             "properties": {
                 "source_id": {"type": "string", "description": "源数据源 id，例如正式库"},
-                "target_id": {"type": "string", "description": "目标数据源 id，必须 tag=test 且 allow_ai_write=true"},
+                "target_id": {"type": "string", "description": "目标数据源 id，必须 tag=test 或 dev 且 allow_ai_write=true"},
                 "table": {"type": "string"},
                 "mode": {"type": "string", "enum": ["replace", "append"], "default": "replace"},
                 "where": {"type": "string", "description": "可选，仅复制源表符合条件的行"},
@@ -1258,7 +1258,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "preview_sql",
-        "description": "在 tag=test 且 allow_ai_write=true 的测试库中预览 INSERT/UPDATE/DELETE 的影响行数；事务执行后回滚，不落盘。",
+        "description": "在 tag=test/dev 且 allow_ai_write=true 的测试或开发库中预览 INSERT/UPDATE/DELETE 的影响行数；事务执行后回滚，不落盘。",
         "inputSchema": {
             "type": "object",
             "required": ["source_id", "sql"],
@@ -1271,7 +1271,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "execute_test_sql",
-        "description": "在 tag=test 且 allow_ai_write=true 的测试库中执行单条 INSERT/UPDATE/DELETE；禁止 DDL/DROP，失败自动回滚。",
+        "description": "在 tag=test/dev 且 allow_ai_write=true 的测试或开发库中执行单条 INSERT/UPDATE/DELETE；禁止 DDL/DROP，失败自动回滚。",
         "inputSchema": {
             "type": "object",
             "required": ["source_id", "sql"],
@@ -1287,12 +1287,12 @@ TOOL_DEFINITIONS = [
 SERVER_INSTRUCTIONS = (
     "这是一个数据库 MCP 服务。使用流程：先调用 list_data_sources，按返回的 name 找到目标数据源的 id；"
     "后续所有工具都把这个 id 作为 source_id 传入。data source 的 tag 字段表示 test/prod/dev，"
-    "allow_ai_write 表示该测试库是否允许 AI 写操作。查询单表结构用 get_table_schema，批量结构用 get_table_schemas；"
+    "allow_ai_write 表示该测试/开发库是否允许 AI 写操作。查询单表结构用 get_table_schema，批量结构用 get_table_schemas；"
     "读取数据用 read_table/read_view，支持 columns、order_by、offset、count_only，单次最多 500 行。"
     "跨表诊断用 read_tables 或只读 query。对象结构有 TTL 缓存；需要对比两个数据源时用 compare_structure、"
-    "preview_data_compare、compare_data。copy_table_to_test 用于把数据复制到 tag=test 且 allow_ai_write=true 的"
+    "preview_data_compare、compare_data。copy_table_to_test 用于把数据复制到 tag=test/dev 且 allow_ai_write=true 的"
     "目标库，要求两侧列结构一致，默认先 dry_run=true 预览。preview_sql / execute_test_sql 只允许在开启"
-    "allow_ai_write 的测试库执行单条 DML；生产库始终只读。不要猜测 source_id，也不要要求用户提供数据库密码。"
+    "allow_ai_write 的测试/开发库执行单条 DML；生产库始终只读。不要猜测 source_id，也不要要求用户提供数据库密码。"
 )
 
 for _tool in TOOL_DEFINITIONS:

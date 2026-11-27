@@ -11,6 +11,7 @@ import datetime
 import json
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -20,12 +21,13 @@ from pathlib import Path
 import dbcore
 
 BASE_DIR = Path(__file__).resolve().parent
-APP_VERSION = "2.0.24"
+APP_VERSION = "2.0.37"
 APP_TITLE = "数据库对比工具 v%s" % APP_VERSION
 APP_ICON = BASE_DIR / "web" / "app-icon.ico"
 STORE_DIR = Path.home() / ".dbsync_tool"
 STORE_FILE = STORE_DIR / "connections.json"
 SESSION_FILE = STORE_DIR / "session.json"
+AI_WRITE_AUDIT_FILE = STORE_DIR / "ai_write_audit.log"
 WEBVIEW_STORAGE_DIR = STORE_DIR / "webview"
 WEBVIEW_ASSET_CACHE_DIRS = (
     Path("EBWebView") / "Default" / "Cache",
@@ -49,6 +51,18 @@ def clear_webview_asset_cache(storage_dir=WEBVIEW_STORAGE_DIR):
         except OSError:
             # 同一工具已有窗口运行时缓存文件可能被占用，不阻止新窗口启动。
             pass
+
+
+def read_mcp_version():
+    """读取 MCP 服务版本；打包版未附带源码时返回空字符串。"""
+    try:
+        text = (BASE_DIR / "mcp" / "server.py").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    for line in text.splitlines():
+        if line.startswith("MCP_SERVER_VERSION"):
+            return line.split("=", 1)[1].strip().strip('"\'')
+    return ""
 
 
 def unblock_bundled_runtime_files():
@@ -129,8 +143,8 @@ def validate_profile(p, require_name=False):
         raise dbcore.DBError("连接配置无效")
     if require_name and not (p.get("name") or "").strip():
         raise dbcore.DBError("请填写配置名")
-    # AI 写权限只属于测试库；非测试库强制关闭，测试库按显式勾选保存。
-    p["allow_ai_write"] = bool(p.get("allow_ai_write")) and p.get("tag") == "test"
+    # AI 写权限只属于测试/开发库；其他标签强制关闭，二者按显式勾选保存。
+    p["allow_ai_write"] = bool(p.get("allow_ai_write")) and p.get("tag") in ("test", "dev")
 
     ptype = (p.get("type") or "").strip().lower()
     if ptype not in dbcore.TYPE_NAMES:
@@ -188,6 +202,7 @@ class Api:
     def __init__(self):
         self._mu = threading.Lock()
         self._sides = {"left": None, "right": None}   # {"profile": p, "db": BaseDB}
+        self._win = None
 
     # ---- 内部工具 ----
     def _side_info(self, side):
@@ -274,6 +289,15 @@ class Api:
         except Exception as e:
             return {"ok": False, "msg": str(e)}
 
+    def list_databases(self, p):
+        """MySQL 连接表单: 用已填写的网络信息读取可选数据库名。"""
+        try:
+            return {"ok": True, "databases": dbcore.list_databases(p)}
+        except dbcore.DBError as e:
+            return {"ok": False, "msg": str(e)}
+        except Exception as e:
+            return {"ok": False, "msg": "加载数据库列表失败: %s" % e}
+
     def save_profile(self, p):
         """仅保存连接配置，不访问数据库；编辑时密码留空则保留原密码。"""
         try:
@@ -355,6 +379,81 @@ class Api:
             return self._state()
         except Exception as e:
             return {"ok": False, "msg": str(e)}
+
+    # ---- 快捷操作（自定义标题栏） ----
+    def get_app_info(self):
+        return {"ok": True, "version": APP_VERSION,
+                "mcp_version": read_mcp_version() or APP_VERSION,
+                "python": "%d.%d.%d" % sys.version_info[:3],
+                "store_dir": str(STORE_DIR)}
+
+    def open_store_dir(self):
+        try:
+            STORE_DIR.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(STORE_DIR))
+            return {"ok": True}
+        except OSError as e:
+            return {"ok": False, "msg": "无法打开配置目录: %s" % e}
+
+    def open_mcp_configurator(self):
+        try:
+            if getattr(sys, "frozen", False):
+                exe = Path(sys.executable).resolve().parent / "mcp" / "config" / "dbsync-mcp-configurator.exe"
+                if not exe.is_file():
+                    raise dbcore.DBError("未找到 MCP 配置中心程序: %s" % exe)
+                subprocess.Popen([str(exe)], cwd=str(exe.parent))
+            else:
+                script = BASE_DIR / "mcp" / "configurator.py"
+                if not script.is_file():
+                    raise dbcore.DBError("未找到 MCP 配置中心脚本: %s" % script)
+                python = BASE_DIR / ".venv" / "Scripts" / "pythonw.exe"
+                if not python.is_file():
+                    python = Path(sys.executable)
+                subprocess.Popen([str(python), str(script)], cwd=str(BASE_DIR))
+            return {"ok": True}
+        except Exception as e:
+            return {"ok": False, "msg": str(e)}
+
+    def clear_user_data(self):
+        """删除本地用户数据文件；浏览器 Local Storage 中的历史由前端清除。"""
+        try:
+            with self._mu:
+                for side in ("left", "right"):
+                    old = self._sides[side]
+                    if old:
+                        old["db"].close()
+                    self._sides[side] = None
+            for path in (STORE_FILE, SESSION_FILE, AI_WRITE_AUDIT_FILE):
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+            state = self._state()
+            state["msg"] = "本地用户数据已清空"
+            return state
+        except Exception as e:
+            return {"ok": False, "msg": "清空用户数据失败: %s" % e}
+
+    # ---- 窗口控制（自定义标题栏） ----
+    def window_minimize(self):
+        if self._win:
+            self._win.minimize()
+        return {"ok": True}
+
+    def window_maximize(self):
+        if self._win:
+            self._win.maximize()
+        return {"ok": True}
+
+    def window_restore(self):
+        if self._win:
+            self._win.restore()
+        return {"ok": True}
+
+    def window_close(self):
+        if self._win:
+            self._win.destroy()
+        return {"ok": True}
 
     def update_profile(self, p):
         """更新已保存的数据源配置 (编辑)"""
@@ -570,7 +669,84 @@ def main():
     win = webview.create_window(
         APP_TITLE, html, js_api=api,
         width=1320, height=860, min_size=(1080, 720),
-        text_select=True)
+        text_select=True, frameless=True, easy_drag=False, shadow=True)
+    api._win = win
+    # 自定义标题栏使用无边框窗口，但保留系统拖边缩放和任务栏内最大化。
+    webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+
+    def setup_frameless_chrome():
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            hwnd = win.native.Handle.ToInt32()
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
+            user32.SetWindowLongW(hwnd, -16, style | 0x00040000)  # WS_THICKFRAME
+            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0027)  # NOSIZE|NOMOVE|NOZORDER|FRAMECHANGED
+
+            import clr
+            clr.AddReference("System.Windows.Forms")
+            from System.Windows.Forms import Screen
+
+            outer = wintypes.RECT()
+            client = wintypes.RECT()
+            origin = wintypes.POINT(0, 0)
+            user32.GetWindowRect(hwnd, ctypes.byref(outer))
+            user32.GetClientRect(hwnd, ctypes.byref(client))
+            user32.ClientToScreen(hwnd, ctypes.byref(origin))
+            left = origin.x - outer.left
+            top = origin.y - outer.top
+            right = outer.right - origin.x - client.right
+            bottom = outer.bottom - origin.y - client.bottom
+            work = Screen.FromControl(win.native).WorkingArea
+            # 最大化范围补上不可见的缩放边框，使内容刚好铺满工作区且不遮挡任务栏
+            win.native.MaximizedBounds = type(work)(
+                work.X - left, work.Y - top,
+                work.Width + left + right, work.Height + top + bottom)
+
+            last_normal = {"rect": None}
+            pre_max = {"rect": None}
+
+            def current_rect():
+                r = wintypes.RECT()
+                user32.GetWindowRect(hwnd, ctypes.byref(r))
+                return (r.left, r.top, r.right - r.left, r.bottom - r.top)
+
+            def is_normal():
+                return not user32.IsZoomed(hwnd) and not user32.IsIconic(hwnd)
+
+            last_normal["rect"] = current_rect()
+
+            def track_normal():
+                if is_normal():
+                    last_normal["rect"] = current_rect()
+
+            def remember_pre_max():
+                pre_max["rect"] = last_normal["rect"]
+
+            def apply_pre_max():
+                # 补回缩放边框后 WinForms 还原会每次减去边框尺寸，恢复到最大化前外框
+                rect = pre_max["rect"]
+                pre_max["rect"] = None
+                if not rect:
+                    return
+
+                def apply():
+                    time.sleep(0.25)
+                    if is_normal():
+                        user32.SetWindowPos(hwnd, 0, rect[0], rect[1], rect[2], rect[3],
+                                            0x0004 | 0x0010)  # NOZORDER|NOACTIVATE
+                threading.Thread(target=apply, daemon=True).start()
+
+            win.events.resized += track_normal
+            win.events.moved += track_normal
+            win.events.maximized += remember_pre_max
+            win.events.restored += apply_pre_max
+        except Exception:
+            pass
+
+    win.events.shown += setup_frameless_chrome
     if os.environ.get("DBSYNC_SMOKE"):
         def closer():
             time.sleep(6)
